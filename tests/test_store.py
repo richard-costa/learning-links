@@ -42,6 +42,28 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(InvalidRelationship):
             self.store.link("Parsing", "Parsing", "helpful")
 
+    def test_overview_and_isolated_topics(self):
+        self.store.add_topic("Parsing")
+        self.store.add_topic("Formal Grammar")
+        self.store.add_topic("Orphan")
+        self.store.link("Parsing", "Formal Grammar", "helpful")
+
+        summaries = {summary.topic.name: summary for summary in self.store.overview()}
+        self.assertEqual(summaries["Formal Grammar"].supports_count, 1)
+        self.assertEqual(summaries["Formal Grammar"].supported_by_count, 0)
+        self.assertEqual(summaries["Parsing"].supported_by_count, 1)
+        self.assertTrue(summaries["Orphan"].isolated)
+        self.assertEqual([topic.name for topic in self.store.isolated_topics()], ["Orphan"])
+
+    def test_reset_removes_topics_and_relationships(self):
+        self.store.add_topic("Parsing")
+        self.store.add_topic("Formal Grammar")
+        self.store.link("Parsing", "Formal Grammar", "helpful")
+
+        self.assertEqual(self.store.reset(), (2, 1))
+        self.assertEqual(self.store.counts(), (0, 0))
+        self.assertEqual(self.store.list_topics(), [])
+
     def test_dot_direction(self):
         self.store.add_topic("Parsing")
         self.store.add_topic("Formal Grammar")
