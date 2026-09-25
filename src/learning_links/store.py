@@ -23,6 +23,17 @@ class Relationship:
     kind: str
 
 
+@dataclass(frozen=True)
+class TopicSummary:
+    topic: Topic
+    supported_by_count: int
+    supports_count: int
+
+    @property
+    def isolated(self) -> bool:
+        return self.supported_by_count == 0 and self.supports_count == 0
+
+
 class StoreError(Exception):
     pass
 
@@ -102,7 +113,9 @@ class Store:
         return self.get_topic(name)
 
     def list_topics(self):
-        rows = self.conn.execute("SELECT id,name,url,status FROM topics ORDER BY name COLLATE NOCASE").fetchall()
+        rows = self.conn.execute(
+            "SELECT id,name,url,status FROM topics ORDER BY name COLLATE NOCASE"
+        ).fetchall()
         return [self._topic(r) for r in rows]
 
     def edit_topic(self, name: str, *, new_name=None, url=None, status=None, set_url=False) -> Topic:
@@ -189,6 +202,40 @@ class Store:
             """
         ).fetchall()
         return [(self._topic(r), int(r["n"])) for r in rows]
+
+    def overview(self) -> list[TopicSummary]:
+        rows = self.conn.execute(
+            """
+            SELECT
+                t.id,t.name,t.url,t.status,
+                (SELECT COUNT(*) FROM relationships r WHERE r.topic_id=t.id) AS supported_by_count,
+                (SELECT COUNT(*) FROM relationships r WHERE r.supporting_topic_id=t.id) AS supports_count
+            FROM topics t
+            ORDER BY t.name COLLATE NOCASE
+            """
+        ).fetchall()
+        return [
+            TopicSummary(
+                topic=self._topic(r),
+                supported_by_count=int(r["supported_by_count"]),
+                supports_count=int(r["supports_count"]),
+            )
+            for r in rows
+        ]
+
+    def isolated_topics(self) -> list[Topic]:
+        return [summary.topic for summary in self.overview() if summary.isolated]
+
+    def counts(self) -> tuple[int, int]:
+        topics = int(self.conn.execute("SELECT COUNT(*) FROM topics").fetchone()[0])
+        relationships = int(self.conn.execute("SELECT COUNT(*) FROM relationships").fetchone()[0])
+        return topics, relationships
+
+    def reset(self) -> tuple[int, int]:
+        counts = self.counts()
+        self.conn.execute("DELETE FROM topics")
+        self.conn.commit()
+        return counts
 
     def relationships(self):
         rows = self.conn.execute(
