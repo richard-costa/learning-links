@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive learning-links demo">
+  <title>learning-links demo</title>
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/cytoscape@3.34.3/dist/cytoscape.min.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <a class="brand" href="https://github.com/richard-costa/learning-links">learning-links</a>
+      <p>Explore learning relationships as a graph.</p>
+    </div>
+    <div class="top-actions">
+      <button id="fit-graph" type="button">Fit graph</button>
+      <button id="reset-demo" type="button">Reset demo</button>
+      <button id="clear-all" type="button" class="danger secondary">Clear all</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="panel controls" aria-label="Graph controls">
+      <section>
+        <h2>Add topic</h2>
+        <form id="topic-form">
+          <label>
+            Name
+            <input id="topic-name" name="name" required maxlength="80" placeholder="e.g. Formal Grammar">
+          </label>
+          <label>
+            Status
+            <select id="topic-status" name="status">
+              <option value="planned">planned</option>
+              <option value="learning">learning</option>
+              <option value="learned">learned</option>
+              <option value="later">later</option>
+            </select>
+          </label>
+          <label>
+            URL <span class="muted">(optional)</span>
+            <input id="topic-url" name="url" type="url" placeholder="https://…">
+          </label>
+          <button type="submit" class="primary">Add topic</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Add relationship</h2>
+        <form id="relationship-form">
+          <label>
+            Supporting topic
+            <select id="supporting-topic" required></select>
+          </label>
+          <label>
+            Topic being learned
+            <select id="dependent-topic" required></select>
+          </label>
+          <label>
+            Relationship
+            <select id="relationship-kind">
+              <option value="helpful">helpful</option>
+              <option value="prerequisite">prerequisite</option>
+            </select>
+          </label>
+          <button type="submit" class="primary">Add relationship</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>View</h2>
+        <div class="filter-row" role="group" aria-label="Graph filter">
+          <button type="button" class="filter active" data-filter="all">All</button>
+          <button type="button" class="filter" data-filter="isolated">Isolated</button>
+          <button type="button" class="filter" data-filter="important">Important</button>
+        </div>
+        <div class="stats" aria-live="polite">
+          <div><strong id="topic-count">0</strong><span>topics</span></div>
+          <div><strong id="relationship-count">0</strong><span>relationships</span></div>
+          <div><strong id="isolated-count">0</strong><span>isolated</span></div>
+        </div>
+      </section>
+
+      <p id="message" class="message" aria-live="polite"></p>
+    </aside>
+
+    <section class="graph-panel" aria-label="Interactive topic graph">
+      <div class="legend">
+        <span><i class="line prereq"></i> prerequisite</span>
+        <span><i class="line helpful"></i> helpful</span>
+        <span><i class="node isolated"></i> isolated</span>
+      </div>
+      <div id="cy" role="img" aria-label="Interactive graph of learning topics"></div>
+    </section>
+
+    <aside class="panel inspector" aria-label="Selection details">
+      <div id="empty-selection">
+        <h2>Inspect</h2>
+        <p class="muted">Select a topic or relationship in the graph.</p>
+      </div>
+
+      <div id="topic-inspector" hidden>
+        <div class="inspector-heading">
+          <div>
+            <span class="eyebrow">Topic</span>
+            <h2 id="selected-topic-name"></h2>
+          </div>
+          <span id="selected-topic-status" class="status"></span>
+        </div>
+        <a id="selected-topic-url" class="topic-url" target="_blank" rel="noreferrer" hidden>Open reference ↗</a>
+
+        <dl class="metrics">
+          <div><dt>Supported by</dt><dd id="selected-incoming-count">0</dd></div>
+          <div><dt>Supports</dt><dd id="selected-outgoing-count">0</dd></div>
+        </dl>
+
+        <h3>Supported by</h3>
+        <ul id="selected-incoming" class="relationship-list"></ul>
+
+        <h3>Supports</h3>
+        <ul id="selected-outgoing" class="relationship-list"></ul>
+
+        <button id="delete-topic" type="button" class="danger">Delete topic</button>
+      </div>
+
+      <div id="edge-inspector" hidden>
+        <span class="eyebrow">Relationship</span>
+        <h2 id="selected-edge-title"></h2>
+        <p id="selected-edge-kind" class="status"></p>
+        <p class="muted">Arrows point from the supporting topic to the topic being learned.</p>
+        <button id="delete-edge" type="button" class="danger">Delete relationship</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    Demo data is stored only in this browser via localStorage. It does not modify the Python/SQLite database.
+  </footer>
+</body>
+</html>
