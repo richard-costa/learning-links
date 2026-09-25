@@ -8,10 +8,14 @@ version = "0.1.0"
 description = "Build and visualize prerequisite and helpful relationships between topics for self-directed learning."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+]
 
 [project.scripts]
 learning-links = "learning_links.cli:main"
+learning-links-api = "learning_links.api:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
