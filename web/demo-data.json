@@ -1,0 +1,54 @@
+{
+  "topics": [
+    {
+      "id": "formal-grammar",
+      "name": "Formal Grammar",
+      "status": "later",
+      "url": "https://en.wikipedia.org/wiki/Formal_grammar"
+    },
+    {
+      "id": "parsing",
+      "name": "Parsing",
+      "status": "planned",
+      "url": "https://en.wikipedia.org/wiki/Parsing"
+    },
+    {
+      "id": "compilers",
+      "name": "Compilers",
+      "status": "planned",
+      "url": ""
+    },
+    {
+      "id": "automata-theory",
+      "name": "Automata Theory",
+      "status": "later",
+      "url": ""
+    },
+    {
+      "id": "type-theory",
+      "name": "Type Theory",
+      "status": "later",
+      "url": ""
+    }
+  ],
+  "relationships": [
+    {
+      "id": "formal-grammar--parsing",
+      "source": "formal-grammar",
+      "target": "parsing",
+      "kind": "helpful"
+    },
+    {
+      "id": "formal-grammar--compilers",
+      "source": "formal-grammar",
+      "target": "compilers",
+      "kind": "prerequisite"
+    },
+    {
+      "id": "automata-theory--compilers",
+      "source": "automata-theory",
+      "target": "compilers",
+      "kind": "helpful"
+    }
+  ]
+}
