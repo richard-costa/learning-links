@@ -24,9 +24,12 @@ export class TopicGraph {
     this.cy = cytoscape({
       container,
       elements: [],
-      minZoom: 0.35,
-      maxZoom: 2.5,
-      wheelSensitivity: 0.18,
+      minZoom: 0.3,
+      maxZoom: 3,
+      wheelSensitivity: 0.35,
+      userZoomingEnabled: true,
+      userPanningEnabled: true,
+      boxSelectionEnabled: false,
       style: [
         {
           selector: "node",
@@ -34,7 +37,7 @@ export class TopicGraph {
             label: "data(label)",
             width: "label",
             height: "label",
-            padding: "16px",
+            padding: "18px",
             shape: "round-rectangle",
             "background-color": "#f4f5f7",
             "border-color": "#737b88",
@@ -43,7 +46,7 @@ export class TopicGraph {
             "font-size": 13,
             "font-weight": 500,
             "text-wrap": "wrap",
-            "text-max-width": "150px",
+            "text-max-width": "180px",
             "text-valign": "center",
             "text-halign": "center",
           },
@@ -107,11 +110,7 @@ export class TopicGraph {
     this.observer.observe(container);
   }
 
-  render(
-    data: GraphData,
-    selection: GraphSelection,
-    runLayout = true,
-  ): void {
+  setData(data: GraphData, runLayout = true): void {
     this.currentData = data;
     this.cy.elements().remove();
     this.cy.add(this.elements(data));
@@ -124,18 +123,44 @@ export class TopicGraph {
           randomize: true,
           componentSpacing: 90,
           nodeRepulsion: () => 9000,
-          idealEdgeLength: () => 130,
+          idealEdgeLength: () => 140,
         })
         .run();
     }
 
-    if (selection) this.cy.getElementById(selection.id).select();
     this.cy.resize();
+  }
+
+  setSelection(selection: GraphSelection): void {
+    this.cy.elements().unselect();
+    if (selection) {
+      const element = this.cy.getElementById(selection.id);
+      if (element.nonempty()) element.select();
+    }
   }
 
   fit(): void {
     const visible = this.cy.elements().not(".hidden");
     if (visible.length > 0) this.cy.fit(visible, 56);
+  }
+
+  zoomIn(): void {
+    this.setZoom(this.cy.zoom() * 1.2);
+  }
+
+  zoomOut(): void {
+    this.setZoom(this.cy.zoom() / 1.2);
+  }
+
+  private setZoom(next: number): void {
+    const center = {
+      x: this.cy.width() / 2,
+      y: this.cy.height() / 2,
+    };
+    this.cy.zoom({
+      level: Math.max(this.cy.minZoom(), Math.min(this.cy.maxZoom(), next)),
+      renderedPosition: center,
+    });
   }
 
   applyView(
