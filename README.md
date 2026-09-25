@@ -197,7 +197,7 @@ python -m unittest discover -s tests -v
 
 ## Web demo
 
-A static browser demo lives in `web/` and is deployable with GitHub Pages.
+The canonical browser demo source lives in `web/`.
 
 It uses:
 
@@ -206,14 +206,12 @@ It uses:
 - `localStorage` for browser-only persistence;
 - `demo-data.json` for the reset state.
 
-The demo does not read or modify your local SQLite database.
+The demo does not read or modify the local SQLite database.
 
-Once GitHub Pages is enabled with **GitHub Actions** as the source, pushes affecting `web/` deploy automatically through `.github/workflows/pages.yml`.
-
-For this repository, the project-site URL should be:
+It is published through the personal Quarto site, which includes this repository as a Git submodule:
 
 ```text
-https://richard-costa.github.io/learning-links/
+https://richard-costa.github.io/demos/learning-links/
 ```
 
-If Pages has not been enabled yet, open the repository settings and choose **Pages → Build and deployment → Source: GitHub Actions**.
+This repository itself does not have a separate GitHub Pages deployment.
