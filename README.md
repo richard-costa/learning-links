@@ -195,23 +195,35 @@ python -m unittest discover -s tests -v
 ```
 
 
-## Web demo
+## Frontend
 
-The canonical browser demo source lives in `web/`.
+The browser frontend lives in `frontend/` and is intentionally deployment-independent.
 
-It uses:
+Stack:
 
-- vanilla HTML/CSS/JavaScript;
-- Cytoscape.js for the interactive graph;
-- `localStorage` for browser-only persistence;
-- `demo-data.json` for the reset state.
+- Vite;
+- vanilla TypeScript;
+- CSS;
+- Cytoscape.js;
+- `localStorage` for browser-only persistence.
 
-The demo does not read or modify the local SQLite database.
+Run it locally:
 
-It is published through the personal Quarto site, which includes this repository as a Git submodule:
-
-```text
-https://richard-costa.github.io/demos/learning-links/
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-This repository itself does not have a separate GitHub Pages deployment.
+Then open the local URL printed by Vite.
+
+Test the production build locally:
+
+```bash
+npm run build
+npm run preview
+```
+
+The frontend currently uses the same conceptual topic/relationship model as the Python CLI, but it does not yet read the SQLite database. That separation is deliberate so the UI can evolve before we introduce an API.
+
+The Vite build uses relative asset paths, so it can later be deployed under a subdirectory such as GitHub Pages or another static host without changing application code.
