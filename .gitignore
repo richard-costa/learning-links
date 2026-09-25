@@ -9,3 +9,6 @@ build/
 .pytest_cache/
 learning-links.db
 *.sqlite3
+
+frontend/node_modules/
+frontend/dist/
