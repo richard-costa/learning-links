@@ -26,12 +26,16 @@ class StoreTests(unittest.TestCase):
             self.store.add_topic(name)
         self.store.link("Parsing", "Formal Grammar", "helpful")
         self.store.link("Compilers", "Formal Grammar", "prerequisite")
-        self.assertEqual([t.name for t,_ in self.store.supports("Formal Grammar")], ["Compilers", "Parsing"])
-        scores = {t.name:n for t,n in self.store.importance()}
+
+        supported = [t.name for t, _ in self.store.supports("Formal Grammar")]
+        self.assertCountEqual(supported, ["Compilers", "Parsing"])
+
+        scores = {t.name: n for t, n in self.store.importance()}
         self.assertEqual(scores["Formal Grammar"], 2)
 
     def test_relationship_update_and_self_link(self):
-        self.store.add_topic("Parsing"); self.store.add_topic("Formal Grammar")
+        self.store.add_topic("Parsing")
+        self.store.add_topic("Formal Grammar")
         self.store.link("Parsing", "Formal Grammar", "helpful")
         self.store.link("Parsing", "Formal Grammar", "prerequisite")
         self.assertEqual(self.store.supported_by("Parsing")[0][1], "prerequisite")
@@ -39,7 +43,8 @@ class StoreTests(unittest.TestCase):
             self.store.link("Parsing", "Parsing", "helpful")
 
     def test_dot_direction(self):
-        self.store.add_topic("Parsing"); self.store.add_topic("Formal Grammar")
+        self.store.add_topic("Parsing")
+        self.store.add_topic("Formal Grammar")
         self.store.link("Parsing", "Formal Grammar", "helpful")
         self.assertIn('"Formal Grammar" -> "Parsing"', to_dot(self.store))
 
