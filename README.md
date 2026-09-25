@@ -193,3 +193,27 @@ learning-links dot [-o FILE]
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+
+## Web demo
+
+A static browser demo lives in `web/` and is deployable with GitHub Pages.
+
+It uses:
+
+- vanilla HTML/CSS/JavaScript;
+- Cytoscape.js for the interactive graph;
+- `localStorage` for browser-only persistence;
+- `demo-data.json` for the reset state.
+
+The demo does not read or modify your local SQLite database.
+
+Once GitHub Pages is enabled with **GitHub Actions** as the source, pushes affecting `web/` deploy automatically through `.github/workflows/pages.yml`.
+
+For this repository, the project-site URL should be:
+
+```text
+https://richard-costa.github.io/learning-links/
+```
+
+If Pages has not been enabled yet, open the repository settings and choose **Pages → Build and deployment → Source: GitHub Actions**.
