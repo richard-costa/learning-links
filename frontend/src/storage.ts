@@ -1,7 +1,5 @@
 import type { GraphData } from "./model";
 
-const STORAGE_KEY = "learning-links.frontend.v1";
-
 export const SAMPLE_DATA: GraphData = {
   topics: [
     {
@@ -47,43 +45,6 @@ export const SAMPLE_DATA: GraphData = {
   ],
 };
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function looksLikeGraphData(value: unknown): value is GraphData {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<GraphData>;
-  return (
-    Array.isArray(candidate.topics) &&
-    Array.isArray(candidate.relationships)
-  );
-}
-
-export function loadGraph(): GraphData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return clone(SAMPLE_DATA);
-
-    const parsed: unknown = JSON.parse(raw);
-    return looksLikeGraphData(parsed) ? parsed : clone(SAMPLE_DATA);
-  } catch {
-    return clone(SAMPLE_DATA);
-  }
-}
-
-export function saveGraph(data: GraphData): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-export function resetGraph(): GraphData {
-  const data = clone(SAMPLE_DATA);
-  saveGraph(data);
-  return data;
-}
-
-export function clearGraph(): GraphData {
-  const data: GraphData = { topics: [], relationships: [] };
-  saveGraph(data);
-  return data;
+export function sampleGraph(): GraphData {
+  return structuredClone(SAMPLE_DATA);
 }
