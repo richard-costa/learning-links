@@ -37,6 +37,30 @@ def test_session_token_is_hashed_and_revocable():
         assert sessions.get(token) is None
 
 
+def test_session_cap_removes_oldest_sessions():
+    with Store(TEST_DATABASE_URL) as store:
+        try:
+            user = store.add_user("session-cap@example.com", hash_password("temporary-password"))
+        except Exception:
+            user = store.get_user("session-cap@example.com")
+
+    with SessionStore(TEST_DATABASE_URL) as sessions:
+        sessions.delete_user_sessions(user.id)
+        first, _ = sessions.create(user.id, max_sessions_per_user=2)
+        second, _ = sessions.create(user.id, max_sessions_per_user=2)
+        third, _ = sessions.create(user.id, max_sessions_per_user=2)
+
+        count = sessions.conn.execute(
+            "SELECT COUNT(*) AS n FROM sessions WHERE user_id=%s",
+            (user.id,),
+        ).fetchone()["n"]
+        assert count == 2
+        assert sessions.get(first) is None
+        assert sessions.get(second) is not None
+        assert sessions.get(third) is not None
+        sessions.delete_user_sessions(user.id)
+
+
 def test_deleting_user_removes_sessions():
     with Store(TEST_DATABASE_URL) as store:
         try:
