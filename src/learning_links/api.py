@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .store import Store, StoreError
+from .auth import verify_password
+from .store import Store, StoreError, UserNotFound
 
 TopicStatus = Literal["planned", "learning", "learned", "later"]
 RelationshipKind = Literal["prerequisite", "helpful"]
@@ -36,8 +40,59 @@ class GraphPayload(BaseModel):
 app = FastAPI(title="learning-links")
 
 
-def database_path() -> Path:
-    return Path(os.environ.get("LEARNING_LINKS_DB", "learning-links.db"))
+def database_url() -> str:
+    value = os.environ.get("DATABASE_URL")
+    if not value:
+        raise RuntimeError("DATABASE_URL is required")
+    return value
+
+
+def frontend_dist() -> Path:
+    default = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    return Path(os.environ.get("LEARNING_LINKS_FRONTEND_DIST", default))
+
+
+def decode_basic_auth(header: str) -> tuple[str, str] | None:
+    if not header.startswith("Basic "):
+        return None
+    try:
+        raw = base64.b64decode(header[6:], validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+    if ":" not in raw:
+        return None
+    return tuple(raw.split(":", 1))  # type: ignore[return-value]
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    if request.url.path == "/api/health":
+        return await call_next(request)
+
+    credentials = decode_basic_auth(request.headers.get("authorization", ""))
+    if credentials is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "authentication required"},
+            headers={"WWW-Authenticate": 'Basic realm="learning-links"'},
+        )
+
+    email, password = credentials
+    try:
+        with Store(database_url()) as store:
+            user = store.get_user(email)
+    except UserNotFound:
+        user = None
+
+    if user is None or not user.active or not verify_password(user.password_hash, password):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "invalid credentials"},
+            headers={"WWW-Authenticate": 'Basic realm="learning-links"'},
+        )
+
+    request.state.user = user
+    return await call_next(request)
 
 
 def graph_from_store(store: Store) -> GraphPayload:
@@ -87,48 +142,35 @@ def replace_graph(store: Store, graph: GraphPayload) -> None:
     store.reset()
 
     for topic in graph.topics:
-        store.add_topic(
-            topic.name,
-            topic.url or None,
-            topic.status,
-        )
+        store.add_topic(topic.name, topic.url or None, topic.status)
 
     for relationship in graph.relationships:
         supporting = by_id[relationship.source]
         dependent = by_id[relationship.target]
-        store.link(
-            dependent.name,
-            supporting.name,
-            relationship.kind,
-        )
+        store.link(dependent.name, supporting.name, relationship.kind)
 
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
+    with Store(database_url()) as store:
+        store.ping()
     return {"status": "ok"}
 
 
 @app.get("/api/graph", response_model=GraphPayload)
 def get_graph() -> GraphPayload:
-    with Store(database_path()) as store:
+    with Store(database_url()) as store:
         return graph_from_store(store)
 
 
 @app.put("/api/graph", response_model=GraphPayload)
 def put_graph(graph: GraphPayload) -> GraphPayload:
     try:
-        with Store(database_path()) as store:
+        with Store(database_url()) as store:
             replace_graph(store, graph)
     except (StoreError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    # Return the same client ids. They only identify nodes within this payload.
     return graph
-
-
-def frontend_dist() -> Path:
-    default = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-    return Path(os.environ.get("LEARNING_LINKS_FRONTEND_DIST", default))
 
 
 _dist = frontend_dist()
