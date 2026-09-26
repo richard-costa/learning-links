@@ -29,7 +29,7 @@ Encounter
   note (optional)
 ```
 
-An encounter is unique for a `(context, topic)` pair. Flagging the same pair again updates its reason/note. See [docs/data-model.md](docs/data-model.md) for the database model and migration from the old relationship schema.
+An encounter is unique for a `(context, topic)` pair. Flagging the same pair again updates its reason/note. See [docs/data-model.md](docs/data-model.md) for the database model.
 
 ## Web interface
 
@@ -111,10 +111,15 @@ Delete all local PostgreSQL data, including users and the test database:
 docker compose down --volumes
 ```
 
-Recreate the disposable test database when needed:
+Recreate the local database with the current encounter schema:
 
 ```fish
-docker compose up -d --wait db
+docker compose up -d --build --wait db
+```
+
+If you also run the database test suite, recreate its disposable database once:
+
+```fish
 docker compose exec -T db createdb -U learning_links learning_links_test
 ```
 
@@ -168,17 +173,9 @@ uv run python scripts/generate_examples.py astronomy
 
 Running multiple subjects intentionally creates recurring concepts such as Differential Equations, Linear Algebra, Probability, and Statistics, so the Discover view becomes useful. Preview commands with `--dry-run`.
 
-## Existing database migration
+## Fresh database after the encounter-model change
 
-On startup, if an older `relationships` table exists, it is migrated once into `encounters` and then removed:
-
-```text
-prerequisite -> need
-helpful      -> revisit
-related      -> curious
-```
-
-The old direction is preserved as `context = old dependent topic` and `topic = old supporting topic`. Because the old `related` kind was semantically symmetric but stored directionally, its migrated direction is necessarily an approximation. Review those migrated entries if they matter to you.
+This project does not carry legacy schema migrations. If you still have a local database from the old relationship model, recreate the local PostgreSQL volume once using the commands under **Local cleanup** above.
 
 ## Web authentication
 
