@@ -1,6 +1,5 @@
-import tempfile
+import os
 import unittest
-from pathlib import Path
 
 from learning_links.api import (
     GraphPayload,
@@ -11,15 +10,18 @@ from learning_links.api import (
 )
 from learning_links.store import Store
 
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
+
+@unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
 class ApiGraphTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.tmp.name) / "api.db")
+        self.store = Store(TEST_DATABASE_URL)
+        self.store.reset()
 
     def tearDown(self):
+        self.store.reset()
         self.store.close()
-        self.tmp.cleanup()
 
     def test_graph_round_trip(self):
         graph = GraphPayload(
