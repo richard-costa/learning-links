@@ -1,15 +1,15 @@
 import "./public.css";
-import { ApiError, getSession, signIn, signOut, signUp } from "./api";
+import { ApiError, getPublicConfig, getSession, signIn, signOut, signUp } from "./api";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const path = window.location.pathname.replace(/\/+$/, "") || "/";
 
-function renderLanding() {
+function renderLanding(signupEnabled: boolean) {
   document.title = "Learning Links";
   app.innerHTML = `<main class="landing">
     <header class="landing-nav">
       <a class="landing-brand" href="/">◆ <strong>Learning Links</strong></a>
-      <div class="landing-nav-actions"><a class="landing-signin" href="/login">Sign in</a><a class="landing-signup" href="/signup">Create account</a></div>
+      <div class="landing-nav-actions"><a class="landing-signin" href="/login">Sign in</a>${signupEnabled ? `<a class="landing-signup" href="/signup">Create account</a>` : ""}</div>
     </header>
     <section class="landing-hero">
       <div class="landing-copy">
@@ -18,7 +18,7 @@ function renderLanding() {
         <p>Capture the concepts that surface while studying, then discover which topics keep returning across different contexts.</p>
         <div class="landing-actions">
           <a class="landing-primary" href="/demo">Try the demo</a>
-          <a class="landing-secondary" href="/signup">Create account</a>
+          ${signupEnabled ? `<a class="landing-secondary" href="/signup">Create account</a>` : `<a class="landing-secondary" href="/login">Sign in</a>`}
         </div>
         <p class="landing-note">The demo runs only in your browser. Changes are temporary and never touch the database.</p>
       </div>
@@ -37,8 +37,13 @@ function renderLanding() {
   </main>`;
 }
 
-function renderAuth(mode: "login" | "signup") {
+function renderAuth(mode: "login" | "signup", signupEnabled: boolean) {
   const signup = mode === "signup";
+  if (signup && !signupEnabled) {
+    window.location.replace("/login");
+    return;
+  }
+
   document.title = `${signup ? "Create account" : "Sign in"} · Learning Links`;
   app.innerHTML = `<main class="auth-page">
     <a class="auth-brand" href="/">◆ <strong>Learning Links</strong></a>
@@ -48,12 +53,12 @@ function renderAuth(mode: "login" | "signup") {
       <p>${signup ? "Your topics and encounters stay in your own workspace." : "Open your personal learning workspace."}</p>
       <form id="auth-form" novalidate>
         <label>Email<input id="auth-email" type="email" autocomplete="email" required maxlength="254"></label>
-        <label>Password<input id="auth-password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" required minlength="8"></label>
+        <label>Password<input id="auth-password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" required minlength="8" maxlength="256"></label>
         ${signup ? `<small class="auth-help">Use at least 8 characters.</small>` : ""}
         <p id="auth-error" class="auth-error" role="alert"></p>
         <button class="auth-submit" type="submit">${signup ? "Create account" : "Sign in"}</button>
       </form>
-      <p class="auth-switch">${signup ? `Already have an account? <a href="/login">Sign in</a>` : `New here? <a href="/signup">Create account</a>`}</p>
+      <p class="auth-switch">${signup ? `Already have an account? <a href="/login">Sign in</a>` : signupEnabled ? `New here? <a href="/signup">Create account</a>` : ""}</p>
       <a class="auth-demo" href="/demo">Or try the demo without an account</a>
     </section>
   </main>`;
@@ -121,16 +126,27 @@ async function renderApplication(demo: boolean) {
   }
 }
 
-if (path === "/") {
-  renderLanding();
-} else if (path === "/login") {
-  renderAuth("login");
-} else if (path === "/signup") {
-  renderAuth("signup");
-} else if (path === "/demo") {
-  void renderApplication(true);
-} else if (path === "/app") {
-  void renderApplication(false);
-} else {
-  renderLanding();
+async function start() {
+  let signupEnabled = false;
+  try {
+    signupEnabled = (await getPublicConfig()).signup_enabled;
+  } catch {
+    // Fail closed: account creation stays hidden if public config cannot load.
+  }
+
+  if (path === "/") {
+    renderLanding(signupEnabled);
+  } else if (path === "/login") {
+    renderAuth("login", signupEnabled);
+  } else if (path === "/signup") {
+    renderAuth("signup", signupEnabled);
+  } else if (path === "/demo") {
+    await renderApplication(true);
+  } else if (path === "/app") {
+    await renderApplication(false);
+  } else {
+    renderLanding(signupEnabled);
+  }
 }
+
+void start();
