@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .auth import hash_password
 from .config import load_environment
+from .sessions import SessionStore
 from .store import VALID_REASONS, VALID_STATUSES, Store, StoreError
 from .visualize import VisualizationError, render_graph, to_dot
 
@@ -282,6 +283,8 @@ def run(args):
 
         if args.command == "user-disable":
             user = store.set_user_active(args.email, False)
+            with SessionStore(database_url) as sessions:
+                sessions.delete_user_sessions(user.id)
             print(f"disabled: {user.email}")
             return 0
 
@@ -292,7 +295,9 @@ def run(args):
 
         if args.command == "user-password":
             user = store.set_user_password(args.email, prompt_password())
-            print(f"password updated: {user.email}")
+            with SessionStore(database_url) as sessions:
+                sessions.delete_user_sessions(user.id)
+            print(f"password updated: {user.email}; existing sessions revoked")
             return 0
 
     return 0
