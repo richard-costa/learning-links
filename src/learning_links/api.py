@@ -79,6 +79,7 @@ def is_public_path(path: str) -> bool:
     normalized = path.rstrip("/") or "/"
     return normalized in {
         "/",
+        "/app",
         "/demo",
         "/login",
         "/signup",
