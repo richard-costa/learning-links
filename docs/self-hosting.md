@@ -1,28 +1,30 @@
 # Self-hosting
 
-Recommended small deployment:
+Recommended no-domain deployment:
 
 ```text
 friends' browsers
        |
        | HTTPS
        v
-Cloudflare
+Tailscale Funnel
        |
-       | outbound tunnel
        v
-Linux VM
+Linux VM or always-on host
 └── Docker Compose
-    ├── cloudflared
     ├── learning-links
     └── PostgreSQL
 ```
+
+For the complete no-domain Funnel setup, see [tailscale-funnel.md](tailscale-funnel.md).
+Cloudflare Tunnel remains an option when you own a domain and want a custom
+hostname.
 
 ## VM
 
 A small Linux VM is enough. For this prototype, 1-2 GB RAM and modest disk space are sufficient.
 
-Use NAT networking unless you have a reason to bridge the VM directly onto your LAN. The Cloudflare Tunnel makes an outbound connection, so the VM does not need inbound internet port forwarding.
+Use NAT networking unless you have a reason to bridge the VM directly onto your LAN. Tailscale Funnel and Cloudflare Tunnel make outbound connections, so the VM does not need inbound internet port forwarding.
 
 Install inside the VM:
 
@@ -70,6 +72,14 @@ docker compose run --rm app learning-links user-add you@example.com
 Add friends the same way.
 
 ## Public access
+
+### Tailscale Funnel (no domain)
+
+Follow [tailscale-funnel.md](tailscale-funnel.md). Friends use the generated
+public `https://...ts.net` URL in a normal browser and authenticate with the app
+account you create for them.
+
+### Cloudflare Tunnel (custom domain)
 
 Create a remotely managed Cloudflare Tunnel and route the chosen public hostname to:
 

@@ -25,59 +25,63 @@ Helps you learn this  ->  [ focused topic ]  ->  This helps you learn
 
 For example, `Formal Grammar → Parsing` means Formal Grammar helps you learn Parsing. A **required first** connection is a prerequisite; **helpful context** is optional; and **related** links record useful associations without implying a learning order. The web interface uses these plain-language labels while the API and database values are `prerequisite`, `helpful`, and `related`.
 
-Select a node to inspect it in the right pane, or switch to **Local graph** to see its immediate connections. Drag to pan and scroll to zoom.
+Select a topic from the left library to inspect it in the right pane, or switch
+to **Local graph** to see its immediate connections. Drag nodes to arrange the
+map, drag empty space to pan, and scroll to zoom.
 
-## Local development
+## Quickstart
 
-Requires Python 3.11+, Node, Docker Compose, and `uv`.
+For local frontend development, you need Python 3.11+, Node, Docker Compose,
+and `uv`.
 
-Install uv once, then create the locked development environment:
+1. Install the Python environment and copy the local configuration template:
 
 ```fish
 python -m pip install --user uv
 uv sync
-```
-
-Create local configuration from the template. Use one password value consistently
-in all three URLs:
-
-```fish
 cp .env.example .env
 ```
 
-Set `POSTGRES_PASSWORD` to a long random value, then replace the placeholder
-password in `DATABASE_URL` and `TEST_DATABASE_URL`. The default host port is
-`5433`, which avoids colliding with a PostgreSQL instance that already uses
-`5432`. Start the local database and wait for it to become healthy:
+2. Set a local database password in `.env`, then replace the placeholder password
+in both `DATABASE_URL` and `TEST_DATABASE_URL` with that same value. For local
+UI testing, set `LEARNING_LINKS_DISABLE_AUTH=1`.
+
+3. Start PostgreSQL once. This command returns when the database is ready:
 
 ```fish
 docker compose up -d --wait db
 ```
 
-This creates the application database, `learning_links`. It is all that the API
-and frontend need. The separate `learning_links_test` database is only for
-pytest, which resets it during database tests.
-
-The repository-root `.env` is loaded by `learning-links-api`, `learning-links`,
-and pytest. `LEARNING_LINKS_DISABLE_AUTH=1` is for local testing only; remove
-it before sharing the application. An exported environment variable takes
-precedence over the same setting in `.env`.
-
-Run FastAPI:
+4. Keep these two commands running in separate terminals:
 
 ```fish
+# Terminal 1, at the repository root
 uv run learning-links-api
-```
 
-Run Vite in another terminal:
-
-```fish
+# Terminal 2
 cd frontend
 npm install
 npm run dev
 ```
 
-Vite normally runs at `http://localhost:5173` and proxies `/api` to FastAPI on port 8000.
+Open the Vite URL, normally `http://localhost:5173`. The API runs on port 8000;
+Vite proxies `/api` requests to it.
+
+### Local configuration
+
+Use one password value consistently in `POSTGRES_PASSWORD`, `DATABASE_URL`, and
+`TEST_DATABASE_URL`. The default PostgreSQL host port is `5433`, which avoids a
+collision with a local PostgreSQL instance on `5432`.
+
+`docker compose up -d --wait db` creates the application database,
+`learning_links`. It is all that the API and frontend need. The separate
+`learning_links_test` database is only for pytest, which resets it during
+database tests.
+
+The repository-root `.env` is loaded by `learning-links-api`, `learning-links`,
+and pytest. `LEARNING_LINKS_DISABLE_AUTH=1` is for local testing only; set it to
+`0` or leave it empty before sharing the app. An exported environment variable
+takes precedence over the same setting in `.env`.
 
 ### Stop and clean up local development
 
@@ -115,6 +119,14 @@ once after the volume reset:
 docker compose exec -T db createdb -U learning_links learning_links_test
 ```
 
+## Share with friends
+
+For a public HTTPS URL without buying a domain or opening router ports, deploy
+the Docker app and publish it with Tailscale Funnel. Keep
+`LEARNING_LINKS_DISABLE_AUTH` empty or set it to `0`, then follow the complete
+guide in [docs/tailscale-funnel.md](docs/tailscale-funnel.md). Each friend gets
+their own Learning Links email/password; they do not need a Tailscale account.
+
 ## CLI
 
 Examples:
@@ -138,7 +150,7 @@ learning-links overview
 learning-links isolated
 learning-links edit NAME [--name NEW_NAME] [--url URL] [--status STATUS]
 learning-links remove NAME
-learning-links link TOPIC SUPPORTING_TOPIC --kind prerequisite|helpful
+learning-links link TOPIC SUPPORTING_TOPIC --kind prerequisite|helpful|related
 learning-links unlink TOPIC SUPPORTING_TOPIC
 learning-links show NAME
 learning-links important
@@ -209,7 +221,8 @@ learning-links user-enable friend@example.com
 learning-links user-password friend@example.com
 ```
 
-Basic authentication must not be exposed over plain public HTTP. Use it only behind HTTPS, such as the Cloudflare Tunnel setup below.
+Basic authentication must not be exposed over plain public HTTP. Use it only
+behind HTTPS, such as Tailscale Funnel or Cloudflare Tunnel.
 
 ## Why FastAPI also serves the frontend
 
@@ -298,20 +311,27 @@ Internet
    |
    | HTTPS
    v
-Cloudflare Tunnel
+Tailscale Funnel or Cloudflare Tunnel
    |
    v
 Linux VM
    |
 Docker Compose
-├── cloudflared
 ├── FastAPI + built frontend
 └── PostgreSQL
 ```
 
 The VM is useful as a security boundary: the application stack can live there instead of directly on your desktop OS. Docker then isolates the app and database services inside the VM.
 
-The recommended public path does not require router port forwarding. `cloudflared` makes an outbound connection to Cloudflare, while friends only see the normal HTTPS application URL.
+The recommended public path does not require router port forwarding. Tailscale
+Funnel provides a free `.ts.net` URL through an outbound connection; Cloudflare
+Tunnel is an alternative when you own a custom domain. Friends only see a normal
+HTTPS application URL.
+
+### Tailscale Funnel (no domain)
+
+See [docs/tailscale-funnel.md](docs/tailscale-funnel.md) for the complete setup.
+It is the simplest option for sharing with friends without buying a domain.
 
 ### Optional Cloudflare Tunnel
 
