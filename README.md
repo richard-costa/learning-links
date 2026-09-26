@@ -199,15 +199,31 @@ python -m unittest discover -s tests -v
 The web app has two small pieces:
 
 ```text
-browser (Vite + TypeScript + Cytoscape)
-              |
-              | /api
-              v
-       FastAPI + SQLite
+browser (Vite + TypeScript)
+          |
+          | /api
+          v
+   FastAPI + SQLite
 ```
 
 The frontend does not access SQLite directly. FastAPI reads and writes the same
 `learning-links.db` used by the CLI.
+
+### Frontend interaction model
+
+The frontend intentionally does not use an infinite canvas or general-purpose graph viewer.
+It focuses on one topic at a time:
+
+```text
+Supported by  ->  [ focused topic ]  ->  Supports
+```
+
+Clicking a related topic makes it the new focus. This keeps navigation predictable and
+avoids zoom, pan, dragging, and layout-management interactions.
+
+The design is loosely inspired by card-oriented visual knowledge tools such as Heptabase,
+but reduced to the smallest interface that serves this project's core question: what helps
+me learn this topic, and what other topics does it help me learn?
 
 ### Why FastAPI also serves the frontend
 
