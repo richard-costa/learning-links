@@ -214,9 +214,15 @@ class Store:
         self.close()
 
     def _workspace_user_id(self) -> int:
-        if self.user_id is None:
-            raise StoreError("workspace operations require a user")
-        return self.user_id
+        if self.user_id is not None:
+            return self.user_id
+        users = [user for user in self.list_users() if user.active]
+        if len(users) == 1:
+            self.user_id = users[0].id
+            return self.user_id
+        if not users:
+            raise StoreError("workspace operations require an active user")
+        raise StoreError("workspace user is ambiguous; choose a user explicitly")
 
     @staticmethod
     def _topic(row) -> Topic:
