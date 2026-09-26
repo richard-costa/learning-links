@@ -42,6 +42,8 @@ The browser has four views:
 
 There is intentionally no global force-directed graph. The map is local so it answers a concrete question instead of becoming a dense overview.
 
+The public web surface also includes a landing page, an isolated browser-only demo, and explicit sign-in/account-creation pages. Public signup is disabled by default.
+
 ## Architecture
 
 ```text
@@ -55,7 +57,7 @@ FastAPI
 PostgreSQL
 ```
 
-PostgreSQL is the source of truth for both the web app and CLI.
+PostgreSQL is the source of truth for both the web app and CLI. Topics and encounters are owned by users at the database level.
 
 ## Quickstart
 
@@ -152,6 +154,8 @@ learning-links graph NAME [-o FILE] [--format svg|png] [--open]
 learning-links dot NAME [-o FILE]
 ```
 
+When more than one user exists, select the workspace owner with `--user user@example.com` or `LEARNING_LINKS_USER`.
+
 `graph` and `dot` produce only a **local ego diagram** for the requested topic.
 
 ### Sample encounters
@@ -168,15 +172,11 @@ uv run python scripts/generate_examples.py astronomy
 
 Running multiple subjects intentionally creates recurring concepts such as Differential Equations, Linear Algebra, Probability, and Statistics, so the Discover view becomes useful. Preview commands with `--dry-run`.
 
-## Fresh database after the encounter-model change
-
-This project does not carry legacy schema migrations. If you still have a local database from the old relationship model, recreate the local PostgreSQL volume once before running this version. See **Local cleanup** above.
-
 ## Web authentication
 
-The web app uses HTTP Basic authentication backed by the PostgreSQL `users` table. Passwords are stored as Argon2 hashes.
+The web app uses server-side sessions backed by PostgreSQL. Passwords are stored as Argon2 hashes. The browser receives a random opaque `HttpOnly` session cookie; PostgreSQL stores only the SHA-256 hash of that session token.
 
-Create a login in Docker:
+Create a login manually in Docker:
 
 ```bash
 docker compose up -d --build
@@ -192,7 +192,11 @@ learning-links user-enable user@example.com
 learning-links user-password user@example.com
 ```
 
-For local-only development, `LEARNING_LINKS_DISABLE_AUTH=1` bypasses the browser prompt. Keep authentication enabled when sharing the application. Basic authentication must only be exposed behind HTTPS.
+Disabling a user or changing a password revokes that user's sessions. Authenticated state-changing API requests also require a CSRF token.
+
+For local-only development, `LEARNING_LINKS_DISABLE_AUTH=1` bypasses normal browser authentication. Never use that setting on a public deployment.
+
+Public account creation is disabled by default. Set `LEARNING_LINKS_ENABLE_SIGNUP=1` only when you intentionally want `/signup` available. `LEARNING_LINKS_MAX_USERS` and the auth rate-limit settings in `.env.example` bound a small self-hosted deployment.
 
 ## Docker and public sharing
 
@@ -213,17 +217,37 @@ PostgreSQL data lives in the named `postgres_data` volume, so normal container r
 
 For a public HTTPS URL without buying a domain or opening router ports, use [Tailscale Funnel](docs/tailscale-funnel.md). [docs/self-hosting.md](docs/self-hosting.md) covers the broader deployment model. `compose.yml` also retains the optional Cloudflare Tunnel profile.
 
+## Public hardening
+
+The public HTTP boundary includes:
+
+- explicit allowlisting of public routes;
+- secure `HttpOnly`, `SameSite=Lax` session cookies (`__Host-` cookies over HTTPS);
+- CSRF checks on authenticated writes;
+- PostgreSQL-backed login/signup throttling;
+- server-side session expiry, cleanup, and per-user session caps;
+- default-off public signup and a configurable user cap;
+- request/workspace size limits;
+- CSP, frame, content-type, referrer, permissions, cache, and HSTS headers where applicable.
+
+The browser-only `/demo` never writes to PostgreSQL.
+
 ## API
 
 The intentionally small API is:
 
 ```text
 GET  /api/health
+GET  /api/public-config
+POST /api/auth/signup
+POST /api/auth/login
+GET  /api/auth/session
+POST /api/auth/logout
 GET  /api/workspace
 PUT  /api/workspace
 ```
 
-`/api/health` is unauthenticated for service health checks. The frontend currently saves the whole workspace with `PUT /api/workspace`; simultaneous edits are therefore last-write-wins.
+`/api/health`, `/api/public-config`, login, and signup are public endpoints. Signup still rejects requests unless explicitly enabled. Workspace endpoints are user-scoped and authenticated. The frontend currently saves the whole workspace with `PUT /api/workspace`; simultaneous edits within one account are therefore last-write-wins.
 
 ## Tests
 
@@ -250,12 +274,15 @@ npm run build
 - recurrence ranking and context matrix;
 - local ego diagrams in the browser and CLI;
 - FastAPI + PostgreSQL persistence;
-- authenticated access and Docker Compose deployment.
+- isolated public demo;
+- per-user workspaces;
+- session-based authenticated access and Docker Compose deployment;
+- optional public signup with basic abuse controls.
 
 ### Next
 
 - replace whole-workspace writes with resource-level CRUD endpoints;
-- better multi-user/concurrency behavior;
+- email verification/password recovery if an outbound email service is added;
 - JSON import/export;
 - filters for larger matrices and discovery lists.
 
