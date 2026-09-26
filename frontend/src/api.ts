@@ -1,4 +1,4 @@
-import type { GraphData } from "./model";
+import type { WorkspaceData } from "./model";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -21,25 +21,16 @@ async function request(path: string, options?: RequestInit): Promise<Response> {
   return response;
 }
 
-export async function loadGraph(): Promise<GraphData> {
-  const response = await request("/api/graph");
-  return response.json() as Promise<GraphData>;
+export async function loadWorkspace(): Promise<WorkspaceData> {
+  const response = await request("/api/workspace");
+  return response.json() as Promise<WorkspaceData>;
 }
 
-export async function saveGraph(data: GraphData): Promise<GraphData> {
-  const response = await request("/api/graph", {
+export async function saveWorkspace(data: WorkspaceData): Promise<WorkspaceData> {
+  const response = await request("/api/workspace", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  return response.json() as Promise<GraphData>;
-}
-
-export async function health(): Promise<boolean> {
-  try {
-    await request("/api/health");
-    return true;
-  } catch {
-    return false;
-  }
+  return response.json() as Promise<WorkspaceData>;
 }

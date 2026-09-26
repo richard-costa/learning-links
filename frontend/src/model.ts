@@ -1,12 +1,8 @@
 export const STATUSES = ["planned", "learning", "learned", "later"] as const;
-export const RELATIONSHIP_KINDS = [
-  "prerequisite",
-  "helpful",
-  "related",
-] as const;
+export const REASONS = ["need", "revisit", "curious"] as const;
 
 export type TopicStatus = (typeof STATUSES)[number];
-export type RelationshipKind = (typeof RELATIONSHIP_KINDS)[number];
+export type EncounterReason = (typeof REASONS)[number];
 
 export interface Topic {
   id: string;
@@ -15,45 +11,52 @@ export interface Topic {
   url: string;
 }
 
-export interface Relationship {
+export interface Encounter {
   id: string;
-  source: string;
-  target: string;
-  kind: RelationshipKind;
+  context: string;
+  topic: string;
+  reason: EncounterReason;
+  note: string;
 }
 
-export interface GraphData {
+export interface WorkspaceData {
   topics: Topic[];
-  relationships: Relationship[];
+  encounters: Encounter[];
 }
 
-export function topicById(data: GraphData, id: string): Topic | undefined {
+export function topicById(data: WorkspaceData, id: string): Topic | undefined {
   return data.topics.find((topic) => topic.id === id);
 }
 
+export function encounterId(context: string, topic: string): string {
+  return `${context}--${topic}`;
+}
+
+export function encountersForTopic(data: WorkspaceData, topicId: string): Encounter[] {
+  return data.encounters.filter((encounter) => encounter.topic === topicId);
+}
+
+export function encountersFromContext(data: WorkspaceData, topicId: string): Encounter[] {
+  return data.encounters.filter((encounter) => encounter.context === topicId);
+}
+
 export function connectionCounts(
-  data: GraphData,
-): Map<string, { incoming: number; outgoing: number }> {
+  data: WorkspaceData,
+): Map<string, { cameUpIn: number; flagged: number }> {
   const counts = new Map(
-    data.topics.map((topic) => [topic.id, { incoming: 0, outgoing: 0 }]),
+    data.topics.map((topic) => [topic.id, { cameUpIn: 0, flagged: 0 }]),
   );
-
-  for (const relationship of data.relationships) {
-    const source = counts.get(relationship.source);
-    const target = counts.get(relationship.target);
-    if (source) source.outgoing += 1;
-    if (target) target.incoming += 1;
+  for (const encounter of data.encounters) {
+    const context = counts.get(encounter.context);
+    const topic = counts.get(encounter.topic);
+    if (context) context.flagged += 1;
+    if (topic) topic.cameUpIn += 1;
   }
-
   return counts;
 }
 
-export function relationshipId(source: string, target: string): string {
-  return `${source}--${target}`;
-}
-
 export function uniqueTopicId(
-  data: GraphData,
+  data: WorkspaceData,
   name: string,
   currentId?: string,
 ): string {

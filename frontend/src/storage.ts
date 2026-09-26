@@ -1,84 +1,68 @@
-import type { GraphData } from "./model";
+import type { WorkspaceData } from "./model";
 
-export const SAMPLE_DATA: GraphData = {
+export const SAMPLE_DATA: WorkspaceData = {
   topics: [
-    {
-      id: "vectors",
-      name: "Vectors",
-      status: "learned",
-      url: "https://en.wikipedia.org/wiki/Euclidean_vector",
-    },
-    {
-      id: "calculus",
-      name: "Calculus",
-      status: "learning",
-      url: "https://en.wikipedia.org/wiki/Calculus",
-    },
-    {
-      id: "classical-mechanics",
-      name: "Classical Mechanics",
-      status: "learning",
-      url: "https://en.wikipedia.org/wiki/Classical_mechanics",
-    },
-    {
-      id: "newtons-laws",
-      name: "Newton's Laws",
-      status: "planned",
-      url: "https://en.wikipedia.org/wiki/Newton%27s_laws_of_motion",
-    },
-    {
-      id: "conservation-of-energy",
-      name: "Conservation of Energy",
-      status: "planned",
-      url: "",
-    },
-    {
-      id: "electromagnetism",
-      name: "Electromagnetism",
-      status: "later",
-      url: "https://en.wikipedia.org/wiki/Electromagnetism",
-    },
+    { id: "classical-mechanics", name: "Classical Mechanics", status: "learning", url: "" },
+    { id: "linear-algebra", name: "Linear Algebra", status: "learning", url: "" },
+    { id: "differential-equations", name: "Differential Equations", status: "planned", url: "" },
+    { id: "control-theory", name: "Control Theory", status: "later", url: "" },
+    { id: "signal-processing", name: "Signal Processing", status: "later", url: "" },
+    { id: "laplace-transform", name: "Laplace Transform", status: "planned", url: "" },
+    { id: "numerical-methods", name: "Numerical Methods", status: "planned", url: "" },
   ],
-  relationships: [
+  encounters: [
     {
-      id: "vectors--classical-mechanics",
-      source: "vectors",
-      target: "classical-mechanics",
-      kind: "prerequisite",
+      id: "classical-mechanics--differential-equations",
+      context: "classical-mechanics",
+      topic: "differential-equations",
+      reason: "need",
+      note: "Harmonic oscillator equations",
     },
     {
-      id: "calculus--classical-mechanics",
-      source: "calculus",
-      target: "classical-mechanics",
-      kind: "helpful",
+      id: "linear-algebra--differential-equations",
+      context: "linear-algebra",
+      topic: "differential-equations",
+      reason: "curious",
+      note: "Linear systems of differential equations",
     },
     {
-      id: "classical-mechanics--newtons-laws",
-      source: "classical-mechanics",
-      target: "newtons-laws",
-      kind: "prerequisite",
+      id: "control-theory--differential-equations",
+      context: "control-theory",
+      topic: "differential-equations",
+      reason: "need",
+      note: "State evolution",
     },
     {
-      id: "classical-mechanics--conservation-of-energy",
-      source: "classical-mechanics",
-      target: "conservation-of-energy",
-      kind: "helpful",
+      id: "signal-processing--differential-equations",
+      context: "signal-processing",
+      topic: "differential-equations",
+      reason: "revisit",
+      note: "Continuous-time systems",
     },
     {
-      id: "vectors--electromagnetism",
-      source: "vectors",
-      target: "electromagnetism",
-      kind: "prerequisite",
+      id: "differential-equations--laplace-transform",
+      context: "differential-equations",
+      topic: "laplace-transform",
+      reason: "revisit",
+      note: "Solving initial-value problems",
     },
     {
-      id: "conservation-of-energy--electromagnetism",
-      source: "conservation-of-energy",
-      target: "electromagnetism",
-      kind: "related",
+      id: "differential-equations--numerical-methods",
+      context: "differential-equations",
+      topic: "numerical-methods",
+      reason: "curious",
+      note: "Approximate solutions when closed forms fail",
+    },
+    {
+      id: "signal-processing--laplace-transform",
+      context: "signal-processing",
+      topic: "laplace-transform",
+      reason: "need",
+      note: "Transfer functions",
     },
   ],
 };
 
-export function sampleGraph(): GraphData {
+export function sampleWorkspace(): WorkspaceData {
   return structuredClone(SAMPLE_DATA);
 }
