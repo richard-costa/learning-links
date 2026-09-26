@@ -12,12 +12,17 @@ pytestmark = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL
 
 class TestStore:
     def setup_method(self):
-        self.store = Store(TEST_DATABASE_URL)
-        self.store.reset()
+        self.admin = Store(TEST_DATABASE_URL)
+        self.admin.conn.execute("DELETE FROM users")
+        self.admin.conn.commit()
+        self.user = self.admin.add_user("alice@example.com", "test-hash")
+        self.store = Store(TEST_DATABASE_URL, user_id=self.user.id)
 
     def teardown_method(self):
-        self.store.reset()
         self.store.close()
+        self.admin.conn.execute("DELETE FROM users")
+        self.admin.conn.commit()
+        self.admin.close()
 
     def test_case_insensitive_topics(self):
         self.store.add_topic("Formal Grammar", status="later")
@@ -60,14 +65,35 @@ class TestStore:
         assert summaries["Orphan"].isolated
         assert [topic.name for topic in self.store.isolated_topics()] == ["Orphan"]
 
-    def test_reset_removes_topics_and_encounters(self):
-        self.store.add_topic("Classical Mechanics")
-        self.store.add_topic("Differential Equations")
-        self.store.flag("Classical Mechanics", "Differential Equations")
+    def test_reset_removes_only_current_users_workspace(self):
+        bob = self.admin.add_user("bob@example.com", "test-hash")
+        bob_store = Store(TEST_DATABASE_URL, user_id=bob.id)
+        try:
+            self.store.add_topic("Shared Name")
+            self.store.add_topic("Alice Only")
+            bob_store.add_topic("Shared Name")
+            bob_store.add_topic("Bob Only")
 
-        assert self.store.reset() == (2, 1)
-        assert self.store.counts() == (0, 0)
-        assert self.store.list_topics() == []
+            assert self.store.reset() == (2, 0)
+            assert self.store.list_topics() == []
+            assert [topic.name for topic in bob_store.list_topics()] == ["Bob Only", "Shared Name"]
+        finally:
+            bob_store.close()
+
+    def test_users_have_independent_encounters(self):
+        bob = self.admin.add_user("bob@example.com", "test-hash")
+        bob_store = Store(TEST_DATABASE_URL, user_id=bob.id)
+        try:
+            for store in (self.store, bob_store):
+                store.add_topic("Mechanics")
+                store.add_topic("Differential Equations")
+            self.store.flag("Mechanics", "Differential Equations", "need", "Alice note")
+            bob_store.flag("Mechanics", "Differential Equations", "curious", "Bob note")
+
+            assert self.store.encounters()[0].note == "Alice note"
+            assert bob_store.encounters()[0].note == "Bob note"
+        finally:
+            bob_store.close()
 
     def test_dot_is_local_ego_diagram(self):
         self.store.add_topic("Classical Mechanics")
