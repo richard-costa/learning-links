@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .auth import hash_password
 from .config import load_environment
-from .store import VALID_KINDS, VALID_STATUSES, Store, StoreError
+from .store import VALID_REASONS, VALID_STATUSES, Store, StoreError
 from .visualize import VisualizationError, render_graph, to_dot
 
 load_environment()
@@ -29,6 +29,7 @@ def build_parser():
 
     sub.add_parser("list")
     sub.add_parser("overview")
+    sub.add_parser("discover")
     sub.add_parser("isolated")
 
     edit = sub.add_parser("edit")
@@ -40,27 +41,28 @@ def build_parser():
     remove = sub.add_parser("remove")
     remove.add_argument("name")
 
-    link = sub.add_parser("link")
-    link.add_argument("topic")
-    link.add_argument("supporting_topic")
-    link.add_argument("--kind", choices=VALID_KINDS, required=True)
+    flag = sub.add_parser("flag", help="record a topic that came up while studying a context")
+    flag.add_argument("context")
+    flag.add_argument("topic")
+    flag.add_argument("--reason", choices=VALID_REASONS, default="need")
+    flag.add_argument("--note", default="")
 
-    unlink = sub.add_parser("unlink")
-    unlink.add_argument("topic")
-    unlink.add_argument("supporting_topic")
+    unflag = sub.add_parser("unflag")
+    unflag.add_argument("context")
+    unflag.add_argument("topic")
 
     show = sub.add_parser("show")
     show.add_argument("name")
 
-    sub.add_parser("important")
-
     reset = sub.add_parser("reset")
     reset.add_argument("--yes", action="store_true", help="skip confirmation")
 
-    dot = sub.add_parser("dot")
+    dot = sub.add_parser("dot", help="export a local ego diagram as DOT")
+    dot.add_argument("name")
     dot.add_argument("-o", "--output", type=Path)
 
-    graph = sub.add_parser("graph")
+    graph = sub.add_parser("graph", help="render a local ego diagram")
+    graph.add_argument("name")
     graph.add_argument("-o", "--output", type=Path)
     graph.add_argument("--format", choices=("svg", "png"))
     graph.add_argument("--open", action="store_true", dest="open_graph")
@@ -101,11 +103,11 @@ def prompt_password() -> str:
 
 def _print_overview(store: Store):
     summaries = store.overview()
-    topics, relationships = store.counts()
+    topics, encounters = store.counts()
     isolated = sum(summary.isolated for summary in summaries)
 
     print(f"Topics: {topics}")
-    print(f"Relationships: {relationships}")
+    print(f"Encounters: {encounters}")
     print(f"Isolated: {isolated}")
 
     if not summaries:
@@ -115,13 +117,13 @@ def _print_overview(store: Store):
     status_width = max(len("STATUS"), *(len(s.topic.status) for s in summaries))
 
     print()
-    print(f"{'TOPIC':<{name_width}}  {'STATUS':<{status_width}}  {'HELPS LEARN IT':>14}  {'HELPS LEARN':>11}")
+    print(f"{'TOPIC':<{name_width}}  {'STATUS':<{status_width}}  {'CAME UP IN':>10}  {'FLAGGED':>7}")
     for summary in summaries:
         print(
             f"{summary.topic.name:<{name_width}}  "
             f"{summary.topic.status:<{status_width}}  "
-            f"{summary.supported_by_count:>14}  "
-            f"{summary.supports_count:>11}"
+            f"{summary.came_up_in_count:>10}  "
+            f"{summary.flagged_count:>7}"
         )
 
 
@@ -132,8 +134,13 @@ def _graph_options(args):
     if format_name is None:
         format_name = "svg"
 
-    output = args.output or Path(f"graph.{format_name}")
+    output = args.output or Path(f"{args.name.lower().replace(' ', '-')}.{format_name}")
     return output, format_name
+
+
+def _format_encounter(topic, reason: str, note: str) -> str:
+    suffix = f" — {note}" if note else ""
+    return f"  {topic.name} ({reason}){suffix}"
 
 
 def run(args):
@@ -152,6 +159,15 @@ def run(args):
 
         if args.command == "overview":
             _print_overview(store)
+            return 0
+
+        if args.command == "discover":
+            recurring = [(topic, count) for topic, count in store.recurring_topics() if count > 0]
+            if not recurring:
+                print("No encounters yet.")
+            else:
+                for topic, count in recurring:
+                    print(f"{count:>3}  {topic.name}")
             return 0
 
         if args.command == "isolated":
@@ -179,60 +195,55 @@ def run(args):
             print(f"removed: {args.name}")
             return 0
 
-        if args.command == "link":
-            relationship = store.link(args.topic, args.supporting_topic, args.kind)
+        if args.command == "flag":
+            encounter = store.flag(args.context, args.topic, args.reason, args.note)
             print(
-                f"{relationship.supporting_topic.name} "
-                f"-[{relationship.kind}]-> {relationship.topic.name}"
+                f"{encounter.context.name} -> {encounter.topic.name} "
+                f"[{encounter.reason}]"
             )
             return 0
 
-        if args.command == "unlink":
+        if args.command == "unflag":
             print(
                 "removed"
-                if store.unlink(args.topic, args.supporting_topic)
-                else "relationship did not exist"
+                if store.unflag(args.context, args.topic)
+                else "encounter did not exist"
             )
             return 0
 
         if args.command == "show":
             topic = store.get_topic(args.name)
-            supported_by = store.supported_by(args.name)
-            supports = store.supports(args.name)
+            contexts = store.came_up_in(args.name)
+            flagged = store.flagged_from(args.name)
 
             print(f"{topic.name} [{topic.status}]")
-            print("\nHelps you learn this:")
-            if supported_by:
-                for other, kind in supported_by:
-                    print(f"  {other.name} ({kind})")
+            print("\nCame up in:")
+            if contexts:
+                for other, reason, note in contexts:
+                    print(_format_encounter(other, reason, note))
             else:
                 print("  —")
 
-            print("\nThis helps you learn:")
-            if supports:
-                for other, kind in supports:
-                    print(f"  {other.name} ({kind})")
+            print("\nFlagged while studying this:")
+            if flagged:
+                for other, reason, note in flagged:
+                    print(_format_encounter(other, reason, note))
             else:
                 print("  —")
-            return 0
-
-        if args.command == "important":
-            for topic, count in store.importance():
-                print(f"{count:>3}  {topic.name}")
             return 0
 
         if args.command == "reset":
             if not args.yes:
-                answer = input("Delete all topics and relationships? [y/N] ").strip().lower()
+                answer = input("Delete all topics and encounters? [y/N] ").strip().lower()
                 if answer not in ("y", "yes"):
                     print("cancelled")
                     return 1
-            topics, relationships = store.reset()
-            print(f"removed {topics} topics and {relationships} relationships")
+            topics, encounters = store.reset()
+            print(f"removed {topics} topics and {encounters} encounters")
             return 0
 
         if args.command == "dot":
-            content = to_dot(store)
+            content = to_dot(store, args.name)
             if args.output:
                 args.output.write_text(content, encoding="utf-8")
                 print(args.output)
@@ -242,7 +253,7 @@ def run(args):
 
         if args.command == "graph":
             output, format_name = _graph_options(args)
-            rendered = render_graph(store, output, format_name)
+            rendered = render_graph(store, args.name, output, format_name)
             print(rendered)
             if args.open_graph:
                 webbrowser.open(rendered.resolve().as_uri())

@@ -16,7 +16,7 @@ from .config import load_environment
 from .store import Store, StoreError, UserNotFound
 
 TopicStatus = Literal["planned", "learning", "learned", "later"]
-RelationshipKind = Literal["prerequisite", "helpful", "related"]
+EncounterReason = Literal["need", "revisit", "curious"]
 
 load_environment()
 
@@ -28,16 +28,17 @@ class TopicPayload(BaseModel):
     url: str = ""
 
 
-class RelationshipPayload(BaseModel):
+class EncounterPayload(BaseModel):
     id: str
-    source: str
-    target: str
-    kind: RelationshipKind
+    context: str
+    topic: str
+    reason: EncounterReason = "need"
+    note: str = ""
 
 
-class GraphPayload(BaseModel):
+class WorkspacePayload(BaseModel):
     topics: list[TopicPayload]
-    relationships: list[RelationshipPayload]
+    encounters: list[EncounterPayload]
 
 
 app = FastAPI(title="learning-links")
@@ -102,11 +103,11 @@ async def require_auth(request: Request, call_next):
     return await call_next(request)
 
 
-def graph_from_store(store: Store) -> GraphPayload:
+def workspace_from_store(store: Store) -> WorkspacePayload:
     topics = store.list_topics()
-    relationships = store.relationships()
+    encounters = store.encounters()
 
-    return GraphPayload(
+    return WorkspacePayload(
         topics=[
             TopicPayload(
                 id=str(topic.id),
@@ -116,45 +117,50 @@ def graph_from_store(store: Store) -> GraphPayload:
             )
             for topic in topics
         ],
-        relationships=[
-            RelationshipPayload(
-                id=f"{relationship.supporting_topic.id}--{relationship.topic.id}",
-                source=str(relationship.supporting_topic.id),
-                target=str(relationship.topic.id),
-                kind=relationship.kind,
+        encounters=[
+            EncounterPayload(
+                id=f"{encounter.context.id}--{encounter.topic.id}",
+                context=str(encounter.context.id),
+                topic=str(encounter.topic.id),
+                reason=encounter.reason,
+                note=encounter.note,
             )
-            for relationship in relationships
+            for encounter in encounters
         ],
     )
 
 
-def replace_graph(store: Store, graph: GraphPayload) -> None:
-    ids = [topic.id for topic in graph.topics]
+def replace_workspace(store: Store, workspace: WorkspacePayload) -> None:
+    ids = [topic.id for topic in workspace.topics]
     if len(ids) != len(set(ids)):
         raise ValueError("topic ids must be unique")
 
-    names = [topic.name.strip().casefold() for topic in graph.topics]
+    names = [topic.name.strip().casefold() for topic in workspace.topics]
     if len(names) != len(set(names)):
         raise ValueError("topic names must be unique")
 
     topic_ids = set(ids)
-    for relationship in graph.relationships:
-        if relationship.source not in topic_ids or relationship.target not in topic_ids:
-            raise ValueError("relationship references an unknown topic")
-        if relationship.source == relationship.target:
-            raise ValueError("a topic cannot support itself")
+    encounter_pairs: set[tuple[str, str]] = set()
+    for encounter in workspace.encounters:
+        if encounter.context not in topic_ids or encounter.topic not in topic_ids:
+            raise ValueError("encounter references an unknown topic")
+        if encounter.context == encounter.topic:
+            raise ValueError("a topic cannot be flagged from itself")
+        pair = (encounter.context, encounter.topic)
+        if pair in encounter_pairs:
+            raise ValueError("encounters must be unique per context and topic")
+        encounter_pairs.add(pair)
 
-    by_id = {topic.id: topic for topic in graph.topics}
+    by_id = {topic.id: topic for topic in workspace.topics}
 
     store.reset()
-
-    for topic in graph.topics:
+    for topic in workspace.topics:
         store.add_topic(topic.name, topic.url or None, topic.status)
 
-    for relationship in graph.relationships:
-        supporting = by_id[relationship.source]
-        dependent = by_id[relationship.target]
-        store.link(dependent.name, supporting.name, relationship.kind)
+    for encounter in workspace.encounters:
+        context = by_id[encounter.context]
+        topic = by_id[encounter.topic]
+        store.flag(context.name, topic.name, encounter.reason, encounter.note)
 
 
 @app.get("/api/health")
@@ -164,20 +170,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/graph", response_model=GraphPayload)
-def get_graph() -> GraphPayload:
+@app.get("/api/workspace", response_model=WorkspacePayload)
+def get_workspace() -> WorkspacePayload:
     with Store(database_url()) as store:
-        return graph_from_store(store)
+        return workspace_from_store(store)
 
 
-@app.put("/api/graph", response_model=GraphPayload)
-def put_graph(graph: GraphPayload) -> GraphPayload:
+@app.put("/api/workspace", response_model=WorkspacePayload)
+def put_workspace(workspace: WorkspacePayload) -> WorkspacePayload:
     try:
         with Store(database_url()) as store:
-            replace_graph(store, graph)
+            replace_workspace(store, workspace)
+            return workspace_from_store(store)
     except (StoreError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return graph
 
 
 _dist = frontend_dist()
