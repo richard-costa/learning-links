@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import base64
-import binascii
 import os
+import secrets
 from pathlib import Path
 from typing import Literal
 
@@ -11,9 +10,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .auth import verify_password
+from .auth import hash_password, verify_password
 from .config import load_environment
-from .store import Store, StoreError, User, UserNotFound
+from .sessions import Session, SessionStore
+from .store import DuplicateUser, Store, StoreError, User, UserNotFound
 
 TopicStatus = Literal["planned", "learning", "learned", "later"]
 EncounterReason = Literal["need", "revisit", "curious"]
@@ -41,6 +41,16 @@ class WorkspacePayload(BaseModel):
     encounters: list[EncounterPayload]
 
 
+class CredentialsPayload(BaseModel):
+    email: str
+    password: str
+
+
+class SessionPayload(BaseModel):
+    email: str
+    csrf_token: str
+
+
 app = FastAPI(title="learning-links")
 
 
@@ -56,22 +66,26 @@ def frontend_dist() -> Path:
     return Path(os.environ.get("LEARNING_LINKS_FRONTEND_DIST", default))
 
 
-def decode_basic_auth(header: str) -> tuple[str, str] | None:
-    if not header.startswith("Basic "):
-        return None
-    try:
-        raw = base64.b64decode(header[6:], validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError):
-        return None
-    if ":" not in raw:
-        return None
-    email, password = raw.split(":", 1)
-    return email, password
+def normalize_email(value: str) -> str:
+    email = value.strip().lower()
+    if not email or "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise ValueError("enter a valid email address")
+    if len(email) > 254:
+        raise ValueError("email address is too long")
+    return email
 
 
 def is_public_path(path: str) -> bool:
     normalized = path.rstrip("/") or "/"
-    return normalized in {"/", "/demo", "/api/health"} or normalized.startswith("/assets/")
+    return normalized in {
+        "/",
+        "/demo",
+        "/login",
+        "/signup",
+        "/api/health",
+        "/api/auth/login",
+        "/api/auth/signup",
+    } or normalized.startswith("/assets/")
 
 
 def development_user(store: Store) -> User:
@@ -96,6 +110,55 @@ def request_user(request: Request) -> User:
     return user
 
 
+def request_session(request: Request) -> Session:
+    session = getattr(request.state, "session", None)
+    if session is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return session
+
+
+def secure_cookie(request: Request) -> bool:
+    override = os.environ.get("LEARNING_LINKS_SECURE_COOKIES")
+    if override == "1":
+        return True
+    if override == "0":
+        return False
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def session_cookie_name(request: Request) -> str:
+    return "__Host-learning_links_session" if secure_cookie(request) else "learning_links_session"
+
+
+def session_token_from_request(request: Request) -> str | None:
+    return request.cookies.get("__Host-learning_links_session") or request.cookies.get(
+        "learning_links_session"
+    )
+
+
+def set_session_cookie(response: JSONResponse, request: Request, token: str) -> None:
+    response.set_cookie(
+        session_cookie_name(request),
+        token,
+        max_age=7 * 24 * 60 * 60,
+        path="/",
+        secure=secure_cookie(request),
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def clear_session_cookies(response: JSONResponse) -> None:
+    response.delete_cookie("__Host-learning_links_session", path="/")
+    response.delete_cookie("learning_links_session", path="/")
+
+
+def csrf_ok(request: Request, session: Session) -> bool:
+    supplied = request.headers.get("x-csrf-token", "")
+    return bool(supplied) and secrets.compare_digest(supplied, session.csrf_token)
+
+
 @app.middleware("http")
 async def require_auth(request: Request, call_next):
     if is_public_path(request.url.path):
@@ -109,29 +172,23 @@ async def require_auth(request: Request, call_next):
             return JSONResponse(status_code=503, content={"detail": str(exc)})
         return await call_next(request)
 
-    credentials = decode_basic_auth(request.headers.get("authorization", ""))
-    if credentials is None:
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "authentication required"},
-            headers={"WWW-Authenticate": 'Basic realm="learning-links"'},
-        )
+    token = session_token_from_request(request)
+    if token is None:
+        return JSONResponse(status_code=401, content={"detail": "authentication required"})
 
-    email, password = credentials
-    try:
-        with Store(database_url()) as store:
-            user = store.get_user(email)
-    except UserNotFound:
-        user = None
+    with SessionStore(database_url()) as sessions:
+        session = sessions.get(token)
+    if session is None:
+        response = JSONResponse(status_code=401, content={"detail": "authentication required"})
+        clear_session_cookies(response)
+        return response
 
-    if user is None or not user.active or not verify_password(user.password_hash, password):
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "invalid credentials"},
-            headers={"WWW-Authenticate": 'Basic realm="learning-links"'},
-        )
+    request.state.user = session.user
+    request.state.session = session
 
-    request.state.user = user
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and not csrf_ok(request, session):
+        return JSONResponse(status_code=403, content={"detail": "invalid CSRF token"})
+
     return await call_next(request)
 
 
@@ -202,6 +259,66 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/auth/signup", response_model=SessionPayload)
+def signup(request: Request, credentials: CredentialsPayload):
+    try:
+        email = normalize_email(credentials.email)
+        password_hash = hash_password(credentials.password)
+        with Store(database_url()) as store:
+            user = store.add_user(email, password_hash)
+    except (ValueError, DuplicateUser, StoreError):
+        raise HTTPException(status_code=400, detail="could not create account")
+
+    with SessionStore(database_url()) as sessions:
+        token, session = sessions.create(user.id)
+    response = JSONResponse(
+        content={"email": user.email, "csrf_token": session.csrf_token}
+    )
+    set_session_cookie(response, request, token)
+    return response
+
+
+@app.post("/api/auth/login", response_model=SessionPayload)
+def login(request: Request, credentials: CredentialsPayload):
+    try:
+        email = normalize_email(credentials.email)
+        with Store(database_url()) as store:
+            user = store.get_user(email)
+    except (ValueError, UserNotFound):
+        user = None
+
+    if user is None or not user.active or not verify_password(user.password_hash, credentials.password):
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    with SessionStore(database_url()) as sessions:
+        token, session = sessions.create(user.id)
+    response = JSONResponse(
+        content={"email": user.email, "csrf_token": session.csrf_token}
+    )
+    set_session_cookie(response, request, token)
+    return response
+
+
+@app.get("/api/auth/session", response_model=SessionPayload)
+def current_session(request: Request) -> SessionPayload:
+    user = request_user(request)
+    if os.environ.get("LEARNING_LINKS_DISABLE_AUTH") == "1":
+        return SessionPayload(email=user.email, csrf_token="development")
+    session = request_session(request)
+    return SessionPayload(email=user.email, csrf_token=session.csrf_token)
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    token = session_token_from_request(request)
+    if token:
+        with SessionStore(database_url()) as sessions:
+            sessions.delete(token)
+    response = JSONResponse(content={"status": "signed out"})
+    clear_session_cookies(response)
+    return response
+
+
 @app.get("/api/workspace", response_model=WorkspacePayload)
 def get_workspace(request: Request) -> WorkspacePayload:
     user = request_user(request)
@@ -235,6 +352,14 @@ if _dist.exists():
 
     @app.get("/demo")
     def demo() -> FileResponse:
+        return frontend_index()
+
+    @app.get("/login")
+    def login_page() -> FileResponse:
+        return frontend_index()
+
+    @app.get("/signup")
+    def signup_page() -> FileResponse:
         return frontend_index()
 
     @app.get("/app")
