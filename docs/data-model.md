@@ -64,25 +64,3 @@ Discovery is primarily `COUNT(encounters.context_topic_id) GROUP BY encounters.t
 ```
 
 The frontend and backend use the same vocabulary: `topics`, `encounters`, `context`, `topic`, `reason`, and `note`.
-
-## Migration from relationships
-
-Older databases used:
-
-```text
-relationships(topic_id, supporting_topic_id, kind)
-```
-
-On the first startup with the encounter model, the store migrates those rows transactionally:
-
-```text
-context_topic_id = old topic_id
-topic_id         = old supporting_topic_id
-prerequisite     -> need
-helpful          -> revisit
-related          -> curious
-```
-
-After the copy, the legacy `relationships` table is dropped. This prevents the application and database from drifting between two models.
-
-The old `related` relationship was presented as symmetric but stored directionally. Migration preserves its stored direction because there is no reliable way to infer the user's intended context after the fact.
