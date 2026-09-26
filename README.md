@@ -1,33 +1,35 @@
 # learning-links
 
-A small tool for building and visualizing prerequisite and helpful relationships between topics for self-directed learning.
+A small tool for building and exploring prerequisite and helpful relationships between topics for self-directed learning.
 
-The first version is intentionally manual:
+## Architecture
 
-- topics as nodes;
-- `prerequisite` and `helpful` relationships as directed edges;
-- manual creation, editing, and deletion;
-- reverse lookup: “what does this topic support?”;
-- a direct-support importance count;
-- topic overview and isolated-topic detection;
-- database reset;
-- Graphviz visualization.
-
-Automatic discovery, Wikipedia integration, and LLM suggestions are deliberately out of scope for v0.1.
-
-## Install
-
-Requires Python 3.11+.
-
-For bash/zsh:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
+```text
+browser
+   |
+   | HTTPS in public deployments
+   v
+FastAPI
+   |
+   v
+PostgreSQL
 ```
 
-For fish:
+The frontend is Vite + vanilla TypeScript + CSS. FastAPI owns the API, authentication, and database access. PostgreSQL is the single source of truth for both the web app and CLI.
+
+The frontend intentionally avoids an infinite canvas. It focuses on one topic at a time:
+
+```text
+Supported by  ->  [ focused topic ]  ->  Supports
+```
+
+Clicking a related topic makes it the new focus.
+
+## Local development
+
+Requires Python 3.11+, Node, and PostgreSQL.
+
+Create the Python environment:
 
 ```fish
 python -m venv .venv
@@ -35,108 +37,43 @@ source .venv/bin/activate.fish
 python -m pip install -e .
 ```
 
-## Example
+Set the database connection:
+
+```fish
+set -x DATABASE_URL postgresql://localhost/learning_links
+```
+
+Run FastAPI:
+
+```fish
+learning-links-api
+```
+
+Run Vite in another terminal:
+
+```fish
+cd frontend
+npm install
+npm run dev
+```
+
+Vite normally runs at `http://localhost:5173` and proxies `/api` to FastAPI on port 8000.
+
+## CLI
+
+Examples:
 
 ```bash
-learning-links add "Parsing" --url "https://en.wikipedia.org/wiki/Parsing"
+learning-links add "Parsing"
 learning-links add "Formal Grammar" --status later
-learning-links add "Compilers"
-
 learning-links link "Parsing" "Formal Grammar" --kind helpful
-learning-links link "Compilers" "Formal Grammar" --kind prerequisite
-
 learning-links show "Formal Grammar"
 learning-links overview
-learning-links important
-learning-links graph --open
 ```
 
-`link TOPIC SUPPORTING_TOPIC` means the second topic supports learning the first. Visualization edges therefore point from the supporting topic to the topic being learned.
+`link TOPIC SUPPORTING_TOPIC` means the second topic supports learning the first.
 
-By default data is stored in `learning-links.db`. Override it with `--db PATH` or `LEARNING_LINKS_DB`.
-
-## Exploring the graph
-
-Show a compact overview:
-
-```bash
-learning-links overview
-```
-
-Example:
-
-```text
-Topics: 3
-Relationships: 2
-Isolated: 0
-
-TOPIC           STATUS   SUPPORTED BY  SUPPORTS
-Compilers       planned             1         0
-Formal Grammar  later               0         2
-Parsing         planned             1         0
-```
-
-Find topics with no relationships:
-
-```bash
-learning-links isolated
-```
-
-An isolated topic is not automatically considered obsolete; it may simply be a topic you saved for later.
-
-## Visualization
-
-If Graphviz is installed:
-
-```bash
-learning-links graph
-```
-
-This creates `graph.svg` by default.
-
-Open it immediately with your system's default viewer:
-
-```bash
-learning-links graph --open
-```
-
-Generate PNG instead:
-
-```bash
-learning-links graph --format png
-```
-
-Or choose the output path:
-
-```bash
-learning-links graph -o my-map.svg
-```
-
-The lower-level DOT export remains available:
-
-```bash
-learning-links dot -o graph.dot
-```
-
-If the `graph` command reports that `dot` is missing, install Graphviz using your operating system's package manager.
-
-## Resetting the database
-
-Delete all topics and relationships:
-
-```bash
-learning-links reset
-```
-
-The command asks for confirmation.
-
-For scripts or disposable test databases:
-
-```bash
-learning-links reset --yes
-```
-
-## Commands
+Main commands:
 
 ```text
 learning-links add NAME [--url URL] [--status planned|learning|learned|later]
@@ -154,165 +91,159 @@ learning-links graph [-o FILE] [--format svg|png] [--open]
 learning-links dot [-o FILE]
 ```
 
-## Roadmap
+## Web authentication
 
-### v0.1 — Manual graph
-- topics and typed learning relationships;
-- CRUD commands;
-- reverse lookup;
-- direct-support importance count;
-- topic overview;
-- isolated-topic detection;
-- safe database reset;
-- direct Graphviz rendering and DOT export.
+The web app uses HTTP Basic authentication backed by the PostgreSQL `users` table.
+Passwords are stored as Argon2 hashes.
 
-### v0.2 — Better exploration
-- filtering by status and relationship kind;
-- indirect dependency/support queries;
-- basic cycle handling and graph diagnostics;
-- improve visualization ergonomics beyond static Graphviz output.
-
-### v0.3 — Automatic suggestions
-- optional Wikipedia-based topic discovery;
-- candidate relationship extraction;
-- review/accept/reject workflow before changing the graph.
-
-### v0.4 — LLM-assisted suggestions
-- classify candidate links as `prerequisite`, `helpful`, or irrelevant;
-- attach explanations/evidence to suggestions;
-- keep all LLM-generated changes user-reviewable.
-
-### Later
-- richer importance metrics;
-- learning-path generation;
-- import/export formats;
-- revisit a C implementation once the data model and behavior are stable.
-
-## Tests
+Add a user:
 
 ```bash
-python -m unittest discover -s tests -v
+learning-links user-add friend@example.com
 ```
 
-## Web app
+The command prompts for the password without echoing it.
 
-The web app has two small pieces:
+Manage users:
 
-```text
-browser (Vite + TypeScript)
-          |
-          | /api
-          v
-   FastAPI + SQLite
+```bash
+learning-links user-list
+learning-links user-disable friend@example.com
+learning-links user-enable friend@example.com
+learning-links user-password friend@example.com
 ```
 
-The frontend does not access SQLite directly. FastAPI reads and writes the same
-`learning-links.db` used by the CLI.
+Basic authentication must not be exposed over plain public HTTP. Use it only behind HTTPS, such as the Cloudflare Tunnel setup below.
 
-### Frontend interaction model
+## Why FastAPI also serves the frontend
 
-The frontend intentionally does not use an infinite canvas or general-purpose graph viewer.
-It focuses on one topic at a time:
+FastAPI's main job is the backend API. Vite still owns and builds the frontend.
 
-```text
-Supported by  ->  [ focused topic ]  ->  Supports
-```
-
-Clicking a related topic makes it the new focus. This keeps navigation predictable and
-avoids zoom, pan, dragging, and layout-management interactions.
-
-The design is loosely inspired by card-oriented visual knowledge tools such as Heptabase,
-but reduced to the smallest interface that serves this project's core question: what helps
-me learn this topic, and what other topics does it help me learn?
-
-### Why FastAPI also serves the frontend
-
-FastAPI's main job is the backend API: it owns the data and exposes endpoints
-that the browser or other clients can call.
-
-The frontend is still a separate application:
-
-```text
-frontend/src/*   -> Vite builds -> frontend/dist/*
-FastAPI          -> serves API  -> /api/*
-```
-
-During development, Vite serves the frontend and FastAPI serves only the API:
+During development:
 
 ```text
 Vite      :5173  -> frontend
-FastAPI   :8000  -> API + SQLite
+FastAPI   :8000  -> API + PostgreSQL
 ```
 
-After `npm run build`, the frontend becomes ordinary static HTML, JavaScript,
-and CSS inside `frontend/dist/`. FastAPI can serve those files as a deployment
-convenience:
-
-```text
-FastAPI :8000
-├── /          -> built frontend files
-└── /api/*     -> backend endpoints
-```
-
-FastAPI is not building or running the TypeScript frontend. Vite does that.
-FastAPI only serves the already-built files.
-
-This keeps deployment simple for a small project: one process, one port, and
-one URL. Later, the frontend can be hosted separately on a CDN or static host
-without changing the backend architecture.
-
-### Development
-
-After pulling changes, update the Python environment:
-
-```bash
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-Run FastAPI in one terminal:
-
-```bash
-learning-links-api
-```
-
-It listens on `http://127.0.0.1:8000` by default.
-
-Run Vite in a second terminal:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open the URL Vite prints, normally `http://localhost:5173`.
-
-Vite proxies `/api` requests to FastAPI, so no CORS configuration is needed.
-
-### Single-process local build
-
-Build the frontend:
+After:
 
 ```bash
 cd frontend
 npm run build
-cd ..
 ```
 
-Then start FastAPI:
+Vite produces ordinary static files in `frontend/dist/`. FastAPI can serve those already-built files as a deployment convenience:
+
+```text
+FastAPI :8000
+├── /          -> built frontend
+└── /api/*     -> API
+```
+
+That gives this small project one application process, one port, and one URL. The frontend can still be hosted separately later without changing the API architecture.
+
+## Docker
+
+The repository contains a multi-stage `Dockerfile` and `compose.yml`.
+
+Copy the environment example and replace the database password:
 
 ```bash
-learning-links-api
+cp .env.example .env
 ```
 
-When `frontend/dist/` exists, FastAPI also serves the frontend. Open:
+Start PostgreSQL and the app:
+
+```bash
+docker compose up -d --build
+```
+
+The default bindings are intentionally local-only:
+
+```text
+127.0.0.1:8000 -> app
+127.0.0.1:5432 -> PostgreSQL
+```
+
+Nothing is exposed directly to the internet.
+
+Create your first web user:
+
+```bash
+docker compose run --rm app learning-links user-add you@example.com
+```
+
+Then open:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-### API
+Your browser will ask for the email/password.
+
+Useful commands:
+
+```bash
+docker compose ps
+docker compose logs -f app
+docker compose logs -f db
+docker compose down
+```
+
+PostgreSQL data lives in the named Docker volume `postgres_data`, so normal container recreation does not delete the database.
+
+## Serving from your machine or a VM
+
+A reasonable small private deployment is:
+
+```text
+Internet
+   |
+   | HTTPS
+   v
+Cloudflare Tunnel
+   |
+   v
+Linux VM
+   |
+Docker Compose
+├── cloudflared
+├── FastAPI + built frontend
+└── PostgreSQL
+```
+
+The VM is useful as a security boundary: the application stack can live there instead of directly on your desktop OS. Docker then isolates the app and database services inside the VM.
+
+The recommended public path does not require router port forwarding. `cloudflared` makes an outbound connection to Cloudflare, while friends only see the normal HTTPS application URL.
+
+### Optional Cloudflare Tunnel
+
+`compose.yml` contains a disabled-by-default `public` profile with a `cloudflared` container.
+
+Create a remotely managed tunnel in Cloudflare and configure its public hostname to route to:
+
+```text
+http://app:8000
+```
+
+Copy the tunnel token into `.env`:
+
+```text
+CLOUDFLARE_TUNNEL_TOKEN=...
+```
+
+Then start the public profile:
+
+```bash
+docker compose --profile public up -d
+```
+
+Friends visit the HTTPS hostname in a normal browser. They do not need Tailscale, a VPN, or any client software. FastAPI then asks for one of the accounts you created with `learning-links user-add`.
+
+Keep `.env` private. The database password and Cloudflare tunnel token must never be committed.
+
+## API
 
 The intentionally small API is:
 
@@ -322,20 +253,44 @@ GET  /api/graph
 PUT  /api/graph
 ```
 
-The frontend currently saves the whole graph with `PUT /api/graph`. This is
-deliberately simple for the current single-user stage.
+`/api/health` is unauthenticated so Docker and hosting platforms can perform health checks. The rest of the application is authenticated.
 
-### Tests
+The frontend currently saves the whole graph with `PUT /api/graph`. This is deliberately simple. It also means simultaneous edits from multiple users are currently last-write-wins; proper per-resource updates/concurrency handling can come later.
 
-Python:
+## Tests
+
+Password tests do not need a database:
 
 ```bash
+python -m unittest tests.test_auth -v
+```
+
+Database tests require a disposable PostgreSQL database:
+
+```bash
+TEST_DATABASE_URL=postgresql://localhost/learning_links_test \
 python -m unittest discover -s tests -v
 ```
 
-Frontend production build:
+## Roadmap
 
-```bash
-cd frontend
-npm run build
-```
+### Current
+- manual topics and typed learning relationships;
+- CLI and focused browser interface;
+- FastAPI API;
+- PostgreSQL persistence;
+- basic authenticated access;
+- Docker Compose deployment.
+
+### Next
+- replace whole-graph writes with normal CRUD API endpoints;
+- better multi-user/concurrency behavior;
+- JSON import/export;
+- indirect dependency/support queries;
+- cycle diagnostics.
+
+### Later
+- Wikipedia-based candidate discovery;
+- LLM-assisted relationship suggestions with explicit review;
+- richer importance metrics;
+- learning-path generation.
