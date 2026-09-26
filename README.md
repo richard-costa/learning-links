@@ -195,19 +195,39 @@ python -m unittest discover -s tests -v
 ```
 
 
-## Frontend
+## Web app
 
-The browser frontend lives in `frontend/` and is intentionally deployment-independent.
+The web app has two small pieces:
 
-Stack:
+```text
+browser (Vite + TypeScript + Cytoscape)
+              |
+              | /api
+              v
+       FastAPI + SQLite
+```
 
-- Vite;
-- vanilla TypeScript;
-- CSS;
-- Cytoscape.js;
-- `localStorage` for browser-only persistence.
+The frontend does not access SQLite directly. FastAPI reads and writes the same
+`learning-links.db` used by the CLI.
 
-Run it locally:
+### Development
+
+After pulling changes, update the Python environment:
+
+```bash
+source .venv/bin/activate
+python -m pip install -e .
+```
+
+Run FastAPI in one terminal:
+
+```bash
+learning-links-api
+```
+
+It listens on `http://127.0.0.1:8000` by default.
+
+Run Vite in a second terminal:
 
 ```bash
 cd frontend
@@ -215,15 +235,59 @@ npm install
 npm run dev
 ```
 
-Then open the local URL printed by Vite.
+Open the URL Vite prints, normally `http://localhost:5173`.
 
-Test the production build locally:
+Vite proxies `/api` requests to FastAPI, so no CORS configuration is needed.
+
+### Single-process local build
+
+Build the frontend:
 
 ```bash
+cd frontend
 npm run build
-npm run preview
+cd ..
 ```
 
-The frontend currently uses the same conceptual topic/relationship model as the Python CLI, but it does not yet read the SQLite database. That separation is deliberate so the UI can evolve before we introduce an API.
+Then start FastAPI:
 
-The Vite build uses relative asset paths, so it can later be deployed under a subdirectory such as GitHub Pages or another static host without changing application code.
+```bash
+learning-links-api
+```
+
+When `frontend/dist/` exists, FastAPI also serves the frontend. Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+This is the simplest setup for Tailscale because only one local port needs to
+be exposed.
+
+### API
+
+The intentionally small API is:
+
+```text
+GET  /api/health
+GET  /api/graph
+PUT  /api/graph
+```
+
+The frontend currently saves the whole graph with `PUT /api/graph`. This is
+deliberately simple for the current single-user stage.
+
+### Tests
+
+Python:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Frontend production build:
+
+```bash
+cd frontend
+npm run build
+```
