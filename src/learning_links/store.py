@@ -104,7 +104,6 @@ class Store:
             )
             """
         )
-        self._migrate_relationships()
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -120,31 +119,6 @@ class Store:
             "CREATE UNIQUE INDEX IF NOT EXISTS users_email_ci_unique ON users (lower(email))"
         )
         self.conn.commit()
-
-    def _migrate_relationships(self) -> None:
-        legacy = self.conn.execute(
-            "SELECT to_regclass('relationships') AS table_name"
-        ).fetchone()
-        if not legacy or legacy["table_name"] is None:
-            return
-
-        self.conn.execute(
-            """
-            INSERT INTO encounters(context_topic_id, topic_id, reason, note)
-            SELECT
-                topic_id,
-                supporting_topic_id,
-                CASE kind
-                    WHEN 'prerequisite' THEN 'need'
-                    WHEN 'helpful' THEN 'revisit'
-                    ELSE 'curious'
-                END,
-                ''
-            FROM relationships
-            ON CONFLICT(context_topic_id, topic_id) DO NOTHING
-            """
-        )
-        self.conn.execute("DROP TABLE relationships")
 
     def close(self) -> None:
         self.conn.close()
