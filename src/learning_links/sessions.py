@@ -57,7 +57,33 @@ class SessionStore:
     def __exit__(self, exc_type, exc, tb):
         self.close()
 
-    def create(self, user_id: int, *, ttl_days: int = 7) -> tuple[str, Session]:
+    def create(
+        self,
+        user_id: int,
+        *,
+        ttl_days: int = 7,
+        max_sessions_per_user: int = 10,
+    ) -> tuple[str, Session]:
+        self.cleanup_expired()
+        if max_sessions_per_user < 1:
+            raise ValueError("max_sessions_per_user must be positive")
+
+        rows = self.conn.execute(
+            """
+            SELECT token_hash
+            FROM sessions
+            WHERE user_id=%s
+            ORDER BY last_seen_at DESC, created_at DESC
+            OFFSET %s
+            """,
+            (user_id, max_sessions_per_user - 1),
+        ).fetchall()
+        if rows:
+            self.conn.executemany(
+                "DELETE FROM sessions WHERE token_hash=%s",
+                [(row["token_hash"],) for row in rows],
+            )
+
         token = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
