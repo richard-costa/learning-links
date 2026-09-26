@@ -36,10 +36,23 @@ function renderLanding() {
   </main>`;
 }
 
+async function renderApplication(demo: boolean) {
+  if (demo) document.body.classList.add("demo-mode");
+  await import("./main");
+  if (demo) {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<a class="demo-banner" href="/" aria-label="Exit demo"><strong>Demo</strong><span>Changes reset when you leave or refresh.</span><b>Exit</b></a>`,
+    );
+  }
+}
+
 if (path === "/") {
   renderLanding();
-} else if (path === "/demo" || path === "/app") {
-  void import("./main");
+} else if (path === "/demo") {
+  void renderApplication(true);
+} else if (path === "/app") {
+  void renderApplication(false);
 } else {
   renderLanding();
 }
