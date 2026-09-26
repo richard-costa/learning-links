@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: learning_links
       POSTGRES_USER: learning_links
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -18,7 +18,7 @@ services:
   app:
     build: .
     environment:
-      DATABASE_URL: postgresql://learning_links:${POSTGRES_PASSWORD:-change-me}@db:5432/learning_links
+      DATABASE_URL: postgresql://learning_links:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/learning_links
     depends_on:
       db:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
       - --no-autoupdate
       - run
       - --token
-      - ${CLOUDFLARE_TUNNEL_TOKEN}
+      - ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       app:
         condition: service_healthy
