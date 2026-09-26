@@ -18,67 +18,49 @@ let data: GraphData = { topics: [], relationships: [] };
 let lastSaved: GraphData = { topics: [], relationships: [] };
 let selectedTopicId: string | null = null;
 let search = "";
-let view: "focus" | "atlas" = "focus";
-let atlasBox = { x: 0, y: 0, width: 1000, height: 720 };
+let view: "atlas" | "focus" = "atlas";
+let graphBox = { x: 0, y: 0, width: 1000, height: 720 };
 let dragging: { x: number; y: number; moved: boolean } | null = null;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root not found");
-
 app.innerHTML = `
   <div class="app-shell">
-    <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span>
-        <div><strong>learning<span class="brand-accent">/</span>links</strong><small>YOUR KNOWLEDGE MAP</small></div>
-      </div>
-      <div class="top-actions">
-        <span class="top-note">Make sense of what connects.</span>
-        <button id="add-topic" type="button" class="primary">+ New topic</button>
-      </div>
-    </header>
-    <div class="workspace">
+    <header class="titlebar"><span class="app-icon" aria-hidden="true">◆</span><strong>Learning Links</strong><span class="titlebar-detail">/ Graph</span></header>
+    <div class="app-body">
+      <nav class="ribbon" aria-label="Views"><button id="atlas-icon" type="button" title="All topics" aria-label="All topics">◎</button><button id="focus-icon" type="button" title="Local graph" aria-label="Local graph">◌</button></nav>
       <aside class="sidebar" aria-label="Topic library">
-        <div class="side-heading"><span>LIBRARY</span><span id="topic-count">00 TOPICS</span></div>
-        <label class="search-wrap"><span class="sr-only">Search topics</span><input id="search" type="search" placeholder="Search topics…" autocomplete="off" /><span aria-hidden="true">⌕</span></label>
+        <div class="pane-heading"><strong>Topics</strong><button id="add-topic" class="icon-button" type="button" title="Add topic" aria-label="Add topic">＋</button></div>
+        <label class="search-wrap"><span class="sr-only">Search topics</span><input id="search" type="search" placeholder="Search topics" autocomplete="off" /></label>
         <div id="topic-list" class="topic-list"></div>
-        <div class="side-footer">
-          <div class="side-key"><span class="key-dot planned"></span> Planned <span class="key-dot learning"></span> Learning <span class="key-dot learned"></span> Learned</div>
-          <button id="load-sample" class="text-button" type="button">Load example map ↗</button>
-          <p id="message" class="message" role="status" aria-live="polite"></p>
-        </div>
+        <div class="side-footer"><button id="load-sample" class="subtle-link" type="button">Load example map</button><span id="topic-count"></span></div>
       </aside>
       <main class="main-panel">
-        <div class="view-header">
-          <div><div class="eyebrow"><span class="live-dot"></span> LEARNING SPACE <span class="divider">/</span> <span id="view-name">FOCUS</span></div>
-            <h1 id="page-title">Your learning map</h1><p id="page-description">Follow an idea from what helps you learn it to what it helps you learn next.</p></div>
-          <div class="view-switch" aria-label="View"><button id="focus-tab" type="button" aria-pressed="true">◈ &nbsp; Focus</button><button id="atlas-tab" type="button" aria-pressed="false">⠿ &nbsp; Map</button></div>
-        </div>
-        <section id="focus-view" class="focus-view" aria-label="Focused topic"></section>
-        <section id="atlas-view" class="atlas-view" aria-label="Full learning map" hidden></section>
+        <div class="tabbar"><div class="tabs"><button id="atlas-tab" type="button">All topics</button><button id="focus-tab" type="button">Local graph</button></div><div class="graph-controls"><button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">＋</button><button type="button" data-zoom="reset" title="Reset view" aria-label="Reset view">⤢</button></div></div>
+        <div id="graph-area" class="graph-area"><section id="atlas-view" class="graph-view" aria-label="All topics graph"></section><section id="focus-view" class="graph-view" aria-label="Local graph" hidden></section></div>
+        <div class="graph-footer"><span id="graph-caption">Select a node to inspect it</span><span id="graph-counts"></span></div>
       </main>
+      <aside id="inspector" class="inspector" aria-label="Topic details"></aside>
     </div>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
   </div>
-  <dialog id="topic-dialog" class="dialog">
-    <form id="topic-form">
-      <div class="dialog-header"><div><span class="eyebrow">YOUR LIBRARY</span><h2 id="topic-dialog-title">New topic</h2></div><button type="button" class="quiet close" data-close="topic-dialog" aria-label="Close">×</button></div>
-      <input id="topic-id" type="hidden" />
-      <label>Name<input id="topic-name" required maxlength="100" autocomplete="off" placeholder="e.g. Type theory" /></label>
-      <label>Progress<select id="topic-status">${STATUSES.map((status) => `<option value="${status}">${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label>
-      <label>Reference link <span class="optional">optional</span><input id="topic-url" type="url" placeholder="https://…" /></label>
-      <div class="dialog-actions"><button type="button" data-close="topic-dialog">Cancel</button><button type="submit" class="primary">Save topic</button></div>
-    </form>
-  </dialog>
-  <dialog id="relationship-dialog" class="dialog">
-    <form id="relationship-form">
-      <div class="dialog-header"><div><span class="eyebrow">CONNECT IDEAS</span><h2 id="relationship-title">Add connection</h2></div><button type="button" class="quiet close" data-close="relationship-dialog" aria-label="Close">×</button></div>
-      <input id="relationship-topic-id" type="hidden" /><input id="relationship-direction" type="hidden" />
-      <p id="relationship-help" class="dialog-help"></p>
-      <label>Other topic<select id="relationship-other"></select></label>
-      <label>How does it help?<select id="relationship-kind">${RELATIONSHIP_KINDS.map((kind) => `<option value="${kind}">${kind === "prerequisite" ? "Required first" : "Helpful, but optional"}</option>`).join("")}</select></label>
-      <p id="relationship-preview" class="relationship-preview"></p>
-      <div class="dialog-actions"><button type="button" data-close="relationship-dialog">Cancel</button><button type="submit" class="primary">Save connection</button></div>
-    </form>
-  </dialog>`;
+  <dialog id="topic-dialog" class="dialog"><form id="topic-form">
+    <div class="dialog-header"><h2 id="topic-dialog-title">Add topic</h2><button type="button" class="icon-button" data-close="topic-dialog" aria-label="Close">×</button></div>
+    <input id="topic-id" type="hidden" />
+    <label>Name<input id="topic-name" required maxlength="100" autocomplete="off" placeholder="e.g. Type theory" /></label>
+    <label>Progress<select id="topic-status">${STATUSES.map((status) => `<option value="${status}">${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select></label>
+    <label>Reference URL <small>optional</small><input id="topic-url" type="url" placeholder="https://…" /></label>
+    <div class="dialog-actions"><button type="button" data-close="topic-dialog">Cancel</button><button type="submit" class="primary">Save topic</button></div>
+  </form></dialog>
+  <dialog id="relationship-dialog" class="dialog"><form id="relationship-form">
+    <div class="dialog-header"><h2 id="relationship-title">Add connection</h2><button type="button" class="icon-button" data-close="relationship-dialog" aria-label="Close">×</button></div>
+    <input id="relationship-topic-id" type="hidden" /><input id="relationship-direction" type="hidden" />
+    <p id="relationship-help" class="dialog-help"></p>
+    <label>Other topic<select id="relationship-other"></select></label>
+    <label>Connection<select id="relationship-kind">${RELATIONSHIP_KINDS.map((kind) => `<option value="${kind}">${kind === "prerequisite" ? "Required first" : "Helpful, but optional"}</option>`).join("")}</select></label>
+    <p id="relationship-preview" class="relationship-preview"></p>
+    <div class="dialog-actions"><button type="button" data-close="relationship-dialog">Cancel</button><button type="submit" class="primary">Save connection</button></div>
+  </form></dialog>`;
 
 function byId<T extends Element>(id: string): T {
   const element = document.getElementById(id);
@@ -86,24 +68,24 @@ function byId<T extends Element>(id: string): T {
   return element as unknown as T;
 }
 const topicList = byId<HTMLDivElement>("topic-list");
-const focusView = byId<HTMLElement>("focus-view");
 const atlasView = byId<HTMLElement>("atlas-view");
-const searchInput = byId<HTMLInputElement>("search");
+const focusView = byId<HTMLElement>("focus-view");
+const graphArea = byId<HTMLElement>("graph-area");
+const inspector = byId<HTMLElement>("inspector");
 const message = byId<HTMLParagraphElement>("message");
+const searchInput = byId<HTMLInputElement>("search");
 const topicDialog = byId<HTMLDialogElement>("topic-dialog");
 const topicForm = byId<HTMLFormElement>("topic-form");
 const topicIdInput = byId<HTMLInputElement>("topic-id");
 const topicNameInput = byId<HTMLInputElement>("topic-name");
 const topicStatusInput = byId<HTMLSelectElement>("topic-status");
 const topicUrlInput = byId<HTMLInputElement>("topic-url");
-const topicDialogTitle = byId<HTMLHeadingElement>("topic-dialog-title");
 const relationshipDialog = byId<HTMLDialogElement>("relationship-dialog");
 const relationshipForm = byId<HTMLFormElement>("relationship-form");
 const relationshipTopicId = byId<HTMLInputElement>("relationship-topic-id");
 const relationshipDirection = byId<HTMLInputElement>("relationship-direction");
 const relationshipOther = byId<HTMLSelectElement>("relationship-other");
 const relationshipKindInput = byId<HTMLSelectElement>("relationship-kind");
-const relationshipTitle = byId<HTMLHeadingElement>("relationship-title");
 
 function escapeHtml(value: string): string {
   return value
@@ -113,63 +95,52 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-function setMessage(text: string): void {
-  message.textContent = text;
-}
-function displayKind(kind: RelationshipKind): string {
-  return kind === "prerequisite" ? "Required first" : "Helpful context";
-}
 function safeReferenceUrl(value: string): string | null {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
   } catch {
     return null;
   }
 }
+function setMessage(text: string): void {
+  message.textContent = text;
+}
+function kindLabel(kind: RelationshipKind): string {
+  return kind === "prerequisite" ? "Required first" : "Helpful";
+}
 
 function renderTopics(): void {
-  byId<HTMLElement>("topic-count").textContent =
-    `${String(data.topics.length).padStart(2, "0")} TOPICS`;
   const counts = connectionCounts(data);
   const topics = [...data.topics]
     .filter((topic) =>
       topic.name.toLowerCase().includes(search.trim().toLowerCase()),
     )
     .sort((a, b) => a.name.localeCompare(b.name));
+  byId<HTMLElement>("topic-count").textContent = `${data.topics.length} topics`;
   topicList.innerHTML = topics.length
     ? topics
         .map(
           (topic) => `
     <button class="topic-row${topic.id === selectedTopicId ? " selected" : ""}" type="button" data-topic="${escapeHtml(topic.id)}" aria-current="${topic.id === selectedTopicId ? "true" : "false"}">
-      <span class="status-dot ${escapeHtml(topic.status)}"></span><span class="topic-row-name">${escapeHtml(topic.name)}</span><small>${(counts.get(topic.id)?.incoming ?? 0) + (counts.get(topic.id)?.outgoing ?? 0)}</small>
+      <span class="file-icon" aria-hidden="true">◇</span><span class="topic-name">${escapeHtml(topic.name)}</span><small title="Connections">${(counts.get(topic.id)?.incoming ?? 0) + (counts.get(topic.id)?.outgoing ?? 0)}</small>
     </button>`,
         )
         .join("")
-    : `<p class="empty side-empty">${search ? "No matching topics." : "Your library is empty."}</p>`;
+    : `<p class="empty side-empty">${search ? "No matching topics." : "No topics yet. Add one above."}</p>`;
 }
 
-function relationCard(relationship: Relationship, id: string): string {
-  const topic = topicById(data, id);
-  if (!topic) return "";
-  return `<div class="relation-card ${escapeHtml(relationship.kind)}" data-relation="${escapeHtml(relationship.id)}">
-    <button class="relation-main" type="button" data-topic="${escapeHtml(id)}"><span class="relation-icon" aria-hidden="true">✳</span><span class="relation-copy"><strong>${escapeHtml(topic.name)}</strong><small>${displayKind(relationship.kind)}</small></span><span class="relation-arrow" aria-hidden="true">↗</span></button>
-    <button class="remove-link quiet" type="button" data-remove-link="${escapeHtml(relationship.id)}" aria-label="Remove connection with ${escapeHtml(topic.name)}" title="Remove connection">×</button>
-  </div>`;
+function relationRow(relation: Relationship, otherId: string): string {
+  const other = topicById(data, otherId);
+  if (!other) return "";
+  return `<div class="relation-row"><button type="button" class="relation-target" data-topic="${escapeHtml(otherId)}"><span class="relation-name">${escapeHtml(other.name)}</span><small class="${escapeHtml(relation.kind)}">${kindLabel(relation.kind)}</small></button><button type="button" class="icon-button remove-link" data-remove-link="${escapeHtml(relation.id)}" aria-label="Remove connection with ${escapeHtml(other.name)}" title="Remove connection">×</button></div>`;
 }
-
-function renderFocus(): void {
-  if ((!selectedTopicId || !topicById(data, selectedTopicId)) && data.topics.length)
-    selectedTopicId = data.topics[0].id;
+function renderInspector(): void {
+  if (selectedTopicId && !topicById(data, selectedTopicId))
+    selectedTopicId = data.topics[0]?.id ?? null;
   const topic = selectedTopicId ? topicById(data, selectedTopicId) : undefined;
-  byId<HTMLElement>("view-name").textContent = "FOCUS";
-  byId<HTMLElement>("page-title").textContent =
-    topic?.name ?? "Your learning map";
-  byId<HTMLElement>("page-description").textContent = topic
-    ? "See what helps you learn it, and where it can take you."
-    : "Collect topics, then connect the ideas that help you learn each one.";
   if (!topic) {
-    focusView.innerHTML = `<div class="welcome"><div class="welcome-symbol">✳</div><span class="eyebrow">A BLANK CANVAS</span><h2>Start with one idea.</h2><p>Add a topic you want to learn. You can connect it to other topics as your map grows.</p><button type="button" class="primary" id="welcome-add">+ Add your first topic</button></div>`;
+    inspector.innerHTML = `<div class="pane-heading"><strong>Topic</strong></div><div class="inspector-empty"><span aria-hidden="true">◇</span><p>Select a topic in the graph or add one to begin.</p><button type="button" class="primary" id="welcome-add">Add topic</button></div>`;
     return;
   }
   const incoming = data.relationships.filter(
@@ -178,200 +149,200 @@ function renderFocus(): void {
   const outgoing = data.relationships.filter(
     (relation) => relation.source === topic.id,
   );
-  const referenceUrl = safeReferenceUrl(topic.url);
-  focusView.innerHTML = `<div class="focus-intro"><span>EXPLORE A TOPIC</span><span>${String(incoming.length + outgoing.length).padStart(2, "0")} CONNECTIONS</span></div>
-    <div class="focus-map">
-      <svg class="focus-edges" aria-hidden="true"></svg>
-      <section class="relation-column incoming"><div class="column-heading"><span class="section-index">01 / LEARN WITH</span><h2>Helps you learn this</h2><p>Ideas that make this topic easier to learn.</p></div>
-        <div class="relation-stack">${incoming.length ? incoming.map((relation) => relationCard(relation, relation.source)).join("") : `<p class="empty">No topics connected here yet.</p>`}</div>
-        <button type="button" class="add-connection" data-add-link="incoming" data-topic-id="${escapeHtml(topic.id)}">+ &nbsp; Connect a topic</button>
-      </section>
-      <article class="focus-card"><div class="focus-card-top"><span class="eyebrow">CURRENT TOPIC</span><span class="focus-glyph" aria-hidden="true">✳</span></div>
-        <span class="status-pill ${escapeHtml(topic.status)}"><span class="status-dot ${escapeHtml(topic.status)}"></span>${escapeHtml(topic.status)}</span>
-        <h2>${escapeHtml(topic.name)}</h2><p class="focus-summary">${incoming.length} ${incoming.length === 1 ? "topic helps" : "topics help"} you learn this <span>·</span> This helps with ${outgoing.length} ${outgoing.length === 1 ? "topic" : "topics"}</p>
-        <div class="focus-actions">${referenceUrl ? `<a class="button-link" href="${escapeHtml(referenceUrl)}" target="_blank" rel="noopener noreferrer">Open reference ↗</a>` : ""}
-          <button type="button" data-edit-topic="${escapeHtml(topic.id)}">Edit topic</button><button type="button" class="danger" data-delete-topic="${escapeHtml(topic.id)}" aria-label="Delete ${escapeHtml(topic.name)}">Delete</button></div>
-      </article>
-      <section class="relation-column outgoing"><div class="column-heading"><span class="section-index">02 / FROM HERE</span><h2>This helps you learn</h2><p>Ideas that build on this topic.</p></div>
-        <div class="relation-stack">${outgoing.length ? outgoing.map((relation) => relationCard(relation, relation.target)).join("") : `<p class="empty">No topics connected here yet.</p>`}</div>
-        <button type="button" class="add-connection" data-add-link="outgoing" data-topic-id="${escapeHtml(topic.id)}">+ &nbsp; Connect a topic</button>
-      </section>
-    </div><div class="map-footnote"><span class="legend-line required"></span> Required first <span class="legend-line helpful"></span> Helpful context <span class="footnote-spacer"></span> Select any topic to follow the trail</div>`;
-  requestAnimationFrame(drawFocusEdges);
-}
-
-function drawFocusEdges(): void {
-  const map = focusView.querySelector<HTMLElement>(".focus-map");
-  const svg = focusView.querySelector<SVGSVGElement>(".focus-edges");
-  const center = focusView.querySelector<HTMLElement>(".focus-card");
-  if (!map || !svg || !center || matchMedia("(max-width: 960px)").matches)
-    return;
-  const origin = map.getBoundingClientRect();
-  const hub = center.getBoundingClientRect();
-  svg.setAttribute("viewBox", `0 0 ${origin.width} ${origin.height}`);
-  const paths: string[] = [];
-  for (const side of ["incoming", "outgoing"] as const) {
-    map
-      .querySelectorAll<HTMLElement>(`.${side} .relation-card`)
-      .forEach((card) => {
-        const rect = card.getBoundingClientRect();
-        const fromX =
-          (side === "incoming" ? rect.right : hub.right) - origin.left;
-        const toX = (side === "incoming" ? hub.left : rect.left) - origin.left;
-        const fromY =
-          (side === "incoming" ? rect : hub).top -
-          origin.top +
-          (side === "incoming" ? rect.height : hub.height) / 2;
-        const toY =
-          (side === "incoming" ? hub : rect).top -
-          origin.top +
-          (side === "incoming" ? hub.height : rect.height) / 2;
-        const bend = Math.max(28, (toX - fromX) * 0.55);
-        const kind = card.classList.contains("prerequisite")
-          ? "required"
-          : "helpful";
-        paths.push(
-          `<path class="edge ${kind}" d="M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}"/><circle class="edge-point ${kind}" cx="${toX}" cy="${toY}" r="3"/>`,
-        );
-      });
-  }
-  svg.innerHTML = paths.join("");
+  const reference = safeReferenceUrl(topic.url);
+  inspector.innerHTML = `<div class="pane-heading"><strong>Topic</strong><button type="button" class="icon-button" data-edit-topic="${escapeHtml(topic.id)}" aria-label="Edit ${escapeHtml(topic.name)}" title="Edit topic">✎</button></div>
+    <div class="inspector-content"><div class="topic-detail"><h1>${escapeHtml(topic.name)}</h1><span class="status-label"><span class="status-dot ${escapeHtml(topic.status)}"></span>${escapeHtml(topic.status)}</span>
+      ${reference ? `<a class="reference-link" href="${escapeHtml(reference)}" target="_blank" rel="noopener noreferrer">Open reference ↗</a>` : ""}
+    </div>
+    <section class="relation-section"><div class="section-heading"><h2>Helps you learn this</h2><button type="button" class="icon-button" data-add-link="incoming" data-topic-id="${escapeHtml(topic.id)}" title="Add connection" aria-label="Add topic that helps you learn this">＋</button></div>
+      <p>Topics that lead to ${escapeHtml(topic.name)}.</p>${incoming.length ? incoming.map((relation) => relationRow(relation, relation.source)).join("") : `<p class="empty">No connections yet.</p>`}</section>
+    <section class="relation-section"><div class="section-heading"><h2>This helps you learn</h2><button type="button" class="icon-button" data-add-link="outgoing" data-topic-id="${escapeHtml(topic.id)}" title="Add connection" aria-label="Add topic this helps you learn">＋</button></div>
+      <p>Topics that build on ${escapeHtml(topic.name)}.</p>${outgoing.length ? outgoing.map((relation) => relationRow(relation, relation.target)).join("") : `<p class="empty">No connections yet.</p>`}</section>
+    <div class="inspector-actions"><button type="button" class="subtle-link danger" data-delete-topic="${escapeHtml(topic.id)}">Delete topic</button></div></div>`;
 }
 
 type Point = { x: number; y: number };
-function graphLayout(): Map<string, Point> {
-  const topics = [...data.topics].sort((a, b) => a.id.localeCompare(b.id));
+function graphLayout(
+  topics: GraphData["topics"],
+  relations: Relationship[],
+): Map<string, Point> {
+  const sorted = [...topics].sort((a, b) => a.id.localeCompare(b.id));
   const points = new Map<string, Point>();
-  topics.forEach((topic, i) => {
+  sorted.forEach((topic, i) => {
     const angle = i * 2.399963;
-    const radius = 40 + 27 * Math.sqrt(i);
+    const radius = 55 + 40 * Math.sqrt(i);
     points.set(topic.id, {
-      x: 500 + Math.cos(angle) * radius,
-      y: 360 + Math.sin(angle) * radius,
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
     });
   });
-  // A small deterministic force pass keeps connected ideas close without a graph library.
+  // Deterministic force pass; no animation or graph dependency.
   for (
     let step = 0;
-    step < Math.min(120, 6000 / Math.max(1, topics.length));
+    step < Math.min(140, 7000 / Math.max(1, sorted.length));
     step++
   ) {
-    const moves = new Map(topics.map((topic) => [topic.id, { x: 0, y: 0 }]));
-    for (let i = 0; i < topics.length; i++)
-      for (let j = i + 1; j < topics.length; j++) {
-        const a = points.get(topics[i].id)!;
-        const b = points.get(topics[j].id)!;
+    const moves = new Map(sorted.map((topic) => [topic.id, { x: 0, y: 0 }]));
+    for (let i = 0; i < sorted.length; i++)
+      for (let j = i + 1; j < sorted.length; j++) {
+        const a = points.get(sorted[i].id)!;
+        const b = points.get(sorted[j].id)!;
         const dx = a.x - b.x;
         const dy = a.y - b.y;
-        const distance = Math.max(10, Math.hypot(dx, dy));
-        const force = Math.min(8, 2500 / (distance * distance));
-        moves.get(topics[i].id)!.x += (dx / distance) * force;
-        moves.get(topics[i].id)!.y += (dy / distance) * force;
-        moves.get(topics[j].id)!.x -= (dx / distance) * force;
-        moves.get(topics[j].id)!.y -= (dy / distance) * force;
+        const distance = Math.max(12, Math.hypot(dx, dy));
+        const force = Math.min(7, 3200 / (distance * distance));
+        moves.get(sorted[i].id)!.x += (dx / distance) * force;
+        moves.get(sorted[i].id)!.y += (dy / distance) * force;
+        moves.get(sorted[j].id)!.x -= (dx / distance) * force;
+        moves.get(sorted[j].id)!.y -= (dy / distance) * force;
       }
-    for (const relation of data.relationships) {
+    for (const relation of relations) {
       const a = points.get(relation.source);
       const b = points.get(relation.target);
       if (!a || !b) continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
-      const pull = Math.max(
-        -3,
-        Math.min(3, (Math.hypot(dx, dy) - 125) * 0.009),
-      );
-      moves.get(relation.source)!.x +=
-        (dx * pull) / Math.max(1, Math.hypot(dx, dy));
-      moves.get(relation.source)!.y +=
-        (dy * pull) / Math.max(1, Math.hypot(dx, dy));
-      moves.get(relation.target)!.x -=
-        (dx * pull) / Math.max(1, Math.hypot(dx, dy));
-      moves.get(relation.target)!.y -=
-        (dy * pull) / Math.max(1, Math.hypot(dx, dy));
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const pull = Math.max(-3, Math.min(3, (distance - 135) * 0.012));
+      moves.get(relation.source)!.x += (dx / distance) * pull;
+      moves.get(relation.source)!.y += (dy / distance) * pull;
+      moves.get(relation.target)!.x -= (dx / distance) * pull;
+      moves.get(relation.target)!.y -= (dy / distance) * pull;
     }
-    for (const topic of topics) {
-      const p = points.get(topic.id)!;
+    for (const topic of sorted) {
+      const point = points.get(topic.id)!;
       const move = moves.get(topic.id)!;
-      p.x = Math.max(65, Math.min(935, p.x + move.x + (500 - p.x) * 0.002));
-      p.y = Math.max(65, Math.min(655, p.y + move.y + (360 - p.y) * 0.002));
+      point.x += move.x - point.x * 0.002;
+      point.y += move.y - point.y * 0.002;
     }
+  }
+  const xs = [...points.values()].map((point) => point.x);
+  const ys = [...points.values()].map((point) => point.y);
+  const centerX = (Math.min(...xs) + Math.max(...xs)) / 2 || 0;
+  const centerY = (Math.min(...ys) + Math.max(...ys)) / 2 || 0;
+  const width = Math.max(...xs) - Math.min(...xs) || 1;
+  const height = Math.max(...ys) - Math.min(...ys) || 1;
+  const scale = Math.min(2.4, 690 / width, 470 / height);
+  for (const point of points.values()) {
+    point.x = 500 + (point.x - centerX) * scale;
+    point.y = 360 + (point.y - centerY) * scale;
   }
   return points;
 }
-
-function renderAtlas(): void {
-  byId<HTMLElement>("view-name").textContent = "MAP";
-  byId<HTMLElement>("page-title").textContent = "The whole picture";
-  byId<HTMLElement>("page-description").textContent =
-    "Follow the arrows from an idea to what it helps you learn. Select a node to explore it.";
-  if (!data.topics.length) {
-    atlasView.innerHTML = `<div class="welcome"><div class="welcome-symbol">✳</div><h2>No map yet.</h2><p>Add a topic to get started.</p><button type="button" class="primary" id="welcome-add">+ Add your first topic</button></div>`;
+function renderGraph(local: boolean): void {
+  const selected = selectedTopicId;
+  const ids =
+    local && selected
+      ? new Set([
+          selected,
+          ...data.relationships
+            .filter((r) => r.source === selected || r.target === selected)
+            .flatMap((r) => [r.source, r.target]),
+        ])
+      : null;
+  const topics = ids
+    ? data.topics.filter((topic) => ids.has(topic.id))
+    : data.topics;
+  const relations = data.relationships.filter(
+    (relation) =>
+      topics.some((topic) => topic.id === relation.source) &&
+      topics.some((topic) => topic.id === relation.target),
+  );
+  const target = local ? focusView : atlasView;
+  byId<HTMLElement>("graph-caption").textContent = local
+    ? "Local graph · connections to the selected topic"
+    : "Select a node to inspect it · drag to pan · scroll to zoom";
+  byId<HTMLElement>("graph-counts").textContent =
+    `${topics.length} topics · ${relations.length} connections`;
+  if (!topics.length) {
+    target.innerHTML = `<div class="graph-empty"><span aria-hidden="true">◇</span><h2>Your graph is empty</h2><p>Add a topic to start mapping what you want to learn.</p><button type="button" class="primary" id="graph-add">Add topic</button><button type="button" class="subtle-link" data-load-sample>Load example map</button></div>`;
     return;
   }
-  const points = graphLayout();
-  const edges = data.relationships
+  const points = graphLayout(topics, relations);
+  const neighbors = new Set(
+    relations
+      .filter((r) => r.source === selected || r.target === selected)
+      .flatMap((r) => [r.source, r.target]),
+  );
+  const edges = relations
     .map((relation) => {
-      const a = points.get(relation.source);
-      const b = points.get(relation.target);
-      if (!a || !b) return "";
+      const a = points.get(relation.source)!;
+      const b = points.get(relation.target)!;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const length = Math.max(1, Math.hypot(dx, dy));
-      return `<line class="atlas-edge ${relation.kind}" x1="${a.x + (dx / length) * 17}" y1="${a.y + (dy / length) * 17}" x2="${b.x - (dx / length) * 19}" y2="${b.y - (dy / length) * 19}" marker-end="url(#arrow-${relation.kind})"/>`;
+      const dim =
+        selected && relation.source !== selected && relation.target !== selected
+          ? " dim"
+          : "";
+      return `<line class="graph-edge ${relation.kind}${dim}" x1="${a.x + (dx / length) * 11}" y1="${a.y + (dy / length) * 11}" x2="${b.x - (dx / length) * 14}" y2="${b.y - (dy / length) * 14}" marker-end="url(#arrow-${relation.kind})"/>`;
     })
     .join("");
-  const nodes = [...data.topics]
-    .sort((a, b) => a.id.localeCompare(b.id))
+  const nodes = topics
     .map((topic) => {
       const point = points.get(topic.id)!;
-      return `<g class="atlas-node ${escapeHtml(topic.status)}${topic.id === selectedTopicId ? " active" : ""}" data-node="${escapeHtml(topic.id)}" tabindex="0" role="button" aria-label="Explore ${escapeHtml(topic.name)}" transform="translate(${point.x} ${point.y})"><circle class="node-halo" r="24"/><circle class="node-ring" r="16"/><circle class="node-core" r="7"/><text y="-27" text-anchor="middle">${escapeHtml(topic.name)}</text></g>`;
+      const selectedClass = topic.id === selected ? " selected" : "";
+      const dim =
+        selected && topic.id !== selected && !neighbors.has(topic.id)
+          ? " dim"
+          : "";
+      return `<g class="graph-node${selectedClass}${dim}" data-node="${escapeHtml(topic.id)}" tabindex="0" role="button" aria-label="Select ${escapeHtml(topic.name)}" transform="translate(${point.x} ${point.y})"><circle class="node-hit" r="22"/><circle class="node-dot" r="${topic.id === selected ? 8 : 6}"/><text y="-15" text-anchor="middle">${escapeHtml(topic.name)}</text></g>`;
     })
     .join("");
-  atlasView.innerHTML = `<div class="atlas-toolbar"><div class="atlas-legend"><span class="legend-line required"></span> Required first <span class="legend-line helpful"></span> Helpful context</div><div class="zoom-controls"><button type="button" data-zoom="in" aria-label="Zoom in">+</button><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="reset" aria-label="Reset view">⤢</button></div></div>
-    <div class="atlas-frame"><svg id="graph-svg" role="group" aria-label="Learning map with ${data.topics.length} topics and ${data.relationships.length} connections" viewBox="${atlasBox.x} ${atlasBox.y} ${atlasBox.width} ${atlasBox.height}" preserveAspectRatio="xMidYMid meet">
-      <defs><marker id="arrow-prerequisite" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#efb877" stroke-width="1.2"/></marker><marker id="arrow-helpful" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#78cfbc" stroke-width="1.2"/></marker></defs>
-      <g class="atlas-edges">${edges}</g><g class="atlas-nodes">${nodes}</g></svg></div>
-    <div class="atlas-caption"><span>SCROLL TO ZOOM <span class="divider">·</span> DRAG TO PAN</span><span>${String(data.topics.length).padStart(2, "0")} NODES <span class="divider">/</span> ${String(data.relationships.length).padStart(2, "0")} LINKS</span></div>`;
+  target.innerHTML = `<svg id="graph-svg" role="group" aria-label="${local ? "Local graph" : "All topics graph"} with ${topics.length} topics" viewBox="${graphBox.x} ${graphBox.y} ${graphBox.width} ${graphBox.height}" preserveAspectRatio="xMidYMid meet"><defs>
+    <marker id="arrow-prerequisite" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0 0 L5 3 L0 6" fill="none" stroke="#bca27c" stroke-width="1"/></marker>
+    <marker id="arrow-helpful" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0 0 L5 3 L0 6" fill="none" stroke="#8a8f9c" stroke-width="1"/></marker></defs>
+    <g>${edges}</g><g>${nodes}</g></svg><div class="graph-legend"><span><i class="legend-line required"></i>Required first</span><span><i class="legend-line helpful"></i>Helpful</span></div>`;
 }
-
 function render(): void {
+  if (selectedTopicId && !topicById(data, selectedTopicId))
+    selectedTopicId = data.topics[0]?.id ?? null;
   renderTopics();
-  focusView.hidden = view !== "focus";
+  renderInspector();
   atlasView.hidden = view !== "atlas";
-  byId<HTMLButtonElement>("focus-tab").setAttribute(
-    "aria-pressed",
-    String(view === "focus"),
-  );
-  byId<HTMLButtonElement>("atlas-tab").setAttribute(
-    "aria-pressed",
-    String(view === "atlas"),
-  );
-  if (view === "focus") renderFocus();
-  else renderAtlas();
+  focusView.hidden = view !== "focus";
+  for (const name of ["atlas", "focus"] as const) {
+    byId<HTMLButtonElement>(`${name}-tab`).classList.toggle(
+      "active",
+      view === name,
+    );
+    byId<HTMLButtonElement>(`${name}-icon`).classList.toggle(
+      "active",
+      view === name,
+    );
+    byId<HTMLButtonElement>(`${name}-tab`).setAttribute(
+      "aria-pressed",
+      String(view === name),
+    );
+  }
+  byId<HTMLElement>("graph-area").classList.toggle("local", view === "focus");
+  if (view === "atlas") focusView.innerHTML = "";
+  else atlasView.innerHTML = "";
+  renderGraph(view === "focus");
 }
-function setView(next: "focus" | "atlas"): void {
+function setView(next: "atlas" | "focus"): void {
   view = next;
+  graphBox = { x: 0, y: 0, width: 1000, height: 720 };
   render();
 }
 function zoom(
   factor: number,
-  cx = atlasBox.x + atlasBox.width / 2,
-  cy = atlasBox.y + atlasBox.height / 2,
+  cx = graphBox.x + graphBox.width / 2,
+  cy = graphBox.y + graphBox.height / 2,
 ): void {
-  const width = Math.max(280, Math.min(2000, atlasBox.width * factor));
+  const width = Math.max(270, Math.min(2200, graphBox.width * factor));
   const height = width * 0.72;
-  atlasBox = {
-    x: cx - ((cx - atlasBox.x) * width) / atlasBox.width,
-    y: cy - ((cy - atlasBox.y) * height) / atlasBox.height,
+  graphBox = {
+    x: cx - ((cx - graphBox.x) * width) / graphBox.width,
+    y: cy - ((cy - graphBox.y) * height) / graphBox.height,
     width,
     height,
   };
   byId<SVGSVGElement>("graph-svg").setAttribute(
     "viewBox",
-    `${atlasBox.x} ${atlasBox.y} ${atlasBox.width} ${atlasBox.height}`,
+    `${graphBox.x} ${graphBox.y} ${graphBox.width} ${graphBox.height}`,
   );
 }
-
 async function persist(text: string): Promise<void> {
   try {
     await saveGraph(data);
@@ -387,7 +358,7 @@ async function persist(text: string): Promise<void> {
   }
 }
 function openNewTopic(): void {
-  topicDialogTitle.textContent = "New topic";
+  byId<HTMLElement>("topic-dialog-title").textContent = "Add topic";
   topicIdInput.value = "";
   topicNameInput.value = "";
   topicStatusInput.value = "planned";
@@ -398,7 +369,7 @@ function openNewTopic(): void {
 function openEditTopic(id: string): void {
   const topic = topicById(data, id);
   if (!topic) return;
-  topicDialogTitle.textContent = "Edit topic";
+  byId<HTMLElement>("topic-dialog-title").textContent = "Edit topic";
   topicIdInput.value = topic.id;
   topicNameInput.value = topic.name;
   topicStatusInput.value = topic.status;
@@ -435,10 +406,7 @@ function openRelationship(
   relationshipTopicId.value = id;
   relationshipDirection.value = direction;
   relationshipKindInput.value = "helpful";
-  relationshipTitle.textContent =
-    direction === "incoming"
-      ? `What helps with ${topic.name}?`
-      : `What builds on ${topic.name}?`;
+  byId<HTMLElement>("relationship-title").textContent = "Add connection";
   byId<HTMLElement>("relationship-help").textContent =
     direction === "incoming"
       ? `Choose a topic that helps you learn ${topic.name}.`
@@ -506,33 +474,37 @@ relationshipForm.addEventListener("submit", async (event) => {
   relationshipDialog.close();
   await persist(existing ? "Connection updated." : "Connection added.");
 });
-
 document.addEventListener("click", async (event) => {
   const element = event.target as Element;
   const node = element.closest<SVGGElement>("[data-node]");
   if (node?.dataset.node && !dragging?.moved) {
     selectedTopicId = node.dataset.node;
-    setView("focus");
+    render();
     return;
   }
   const button = element.closest<HTMLButtonElement>("button");
   if (!button) return;
-  if (button.id === "focus-tab") {
-    setView("focus");
+  if (button.id === "atlas-tab" || button.id === "atlas-icon") {
+    setView("atlas");
     return;
   }
-  if (button.id === "atlas-tab") {
-    setView("atlas");
+  if (button.id === "focus-tab" || button.id === "focus-icon") {
+    setView("focus");
     return;
   }
   if (button.dataset.zoom) {
     if (button.dataset.zoom === "reset") {
-      atlasBox = { x: 0, y: 0, width: 1000, height: 720 };
-      renderAtlas();
-    } else zoom(button.dataset.zoom === "in" ? 0.8 : 1.25);
+      graphBox = { x: 0, y: 0, width: 1000, height: 720 };
+      renderGraph(view === "focus");
+    } else if (document.querySelector("#graph-svg"))
+      zoom(button.dataset.zoom === "in" ? 0.8 : 1.25);
     return;
   }
-  if (button.id === "add-topic" || button.id === "welcome-add") {
+  if (
+    button.id === "add-topic" ||
+    button.id === "welcome-add" ||
+    button.id === "graph-add"
+  ) {
     openNewTopic();
     return;
   }
@@ -542,7 +514,7 @@ document.addEventListener("click", async (event) => {
   }
   if (button.dataset.topic) {
     selectedTopicId = button.dataset.topic;
-    setView("focus");
+    render();
     return;
   }
   if (button.dataset.editTopic) {
@@ -585,76 +557,72 @@ document.addEventListener("click", async (event) => {
     await persist(`Deleted “${topic.name}”.`);
     return;
   }
-  if (button.id === "load-sample") {
+  if (button.id === "load-sample" || button.dataset.loadSample !== undefined) {
     if (!confirm("Replace the current map with example topics?")) return;
     data = sampleGraph();
     selectedTopicId = data.topics[0]?.id ?? null;
     await persist("Example map loaded.");
   }
 });
-
 document.addEventListener("keydown", (event) => {
   const node = (event.target as Element).closest<SVGGElement>("[data-node]");
   if (node?.dataset.node && (event.key === "Enter" || event.key === " ")) {
     event.preventDefault();
     selectedTopicId = node.dataset.node;
-    setView("focus");
+    render();
   }
 });
 searchInput.addEventListener("input", () => {
   search = searchInput.value;
   renderTopics();
 });
-window.addEventListener("resize", () => {
-  if (view === "focus") drawFocusEdges();
-});
-atlasView.addEventListener(
+graphArea.addEventListener(
   "wheel",
   (event) => {
-    const svg = atlasView.querySelector<SVGSVGElement>("#graph-svg");
+    const svg = graphArea.querySelector<SVGSVGElement>("#graph-svg");
     if (!svg) return;
     event.preventDefault();
     const rect = svg.getBoundingClientRect();
     const cx =
-      atlasBox.x + ((event.clientX - rect.left) / rect.width) * atlasBox.width;
+      graphBox.x + ((event.clientX - rect.left) / rect.width) * graphBox.width;
     const cy =
-      atlasBox.y + ((event.clientY - rect.top) / rect.height) * atlasBox.height;
+      graphBox.y + ((event.clientY - rect.top) / rect.height) * graphBox.height;
     zoom(event.deltaY > 0 ? 1.12 : 0.89, cx, cy);
   },
   { passive: false },
 );
-atlasView.addEventListener("pointerdown", (event) => {
-  const svg = atlasView.querySelector<SVGSVGElement>("#graph-svg");
+graphArea.addEventListener("pointerdown", (event) => {
+  const svg = graphArea.querySelector<SVGSVGElement>("#graph-svg");
   if (!svg || !(event.target as Element).closest("#graph-svg")) return;
   dragging = { x: event.clientX, y: event.clientY, moved: false };
   svg.setPointerCapture(event.pointerId);
 });
-atlasView.addEventListener("pointermove", (event) => {
+graphArea.addEventListener("pointermove", (event) => {
   if (!dragging) return;
-  const svg = atlasView.querySelector<SVGSVGElement>("#graph-svg");
+  const svg = graphArea.querySelector<SVGSVGElement>("#graph-svg");
   if (!svg) return;
   const dx = event.clientX - dragging.x;
   const dy = event.clientY - dragging.y;
   if (Math.abs(dx) + Math.abs(dy) > 2) dragging.moved = true;
   if (dragging.moved) {
     const rect = svg.getBoundingClientRect();
-    atlasBox.x -= (dx / rect.width) * atlasBox.width;
-    atlasBox.y -= (dy / rect.height) * atlasBox.height;
+    graphBox.x -= (dx / rect.width) * graphBox.width;
+    graphBox.y -= (dy / rect.height) * graphBox.height;
     svg.setAttribute(
       "viewBox",
-      `${atlasBox.x} ${atlasBox.y} ${atlasBox.width} ${atlasBox.height}`,
+      `${graphBox.x} ${graphBox.y} ${graphBox.width} ${graphBox.height}`,
     );
   }
   dragging.x = event.clientX;
   dragging.y = event.clientY;
 });
-atlasView.addEventListener("pointerup", () => {
+graphArea.addEventListener("pointerup", () => {
   if (dragging)
     setTimeout(() => {
       dragging = null;
     }, 0);
 });
-atlasView.addEventListener("pointercancel", () => {
+graphArea.addEventListener("pointercancel", () => {
   dragging = null;
 });
 
@@ -663,7 +631,7 @@ async function start(): Promise<void> {
     data = await loadGraph();
     lastSaved = structuredClone(data);
     selectedTopicId = data.topics[0]?.id ?? null;
-    setMessage("Map connected.");
+    setMessage("Connected");
   } catch (error) {
     setMessage(
       `API unavailable: ${error instanceof Error ? error.message : String(error)}`,

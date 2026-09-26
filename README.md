@@ -17,7 +17,7 @@ PostgreSQL
 
 The frontend is Vite + vanilla TypeScript + CSS. FastAPI owns the API, authentication, and database access. PostgreSQL is the single source of truth for both the web app and CLI.
 
-The frontend offers a focused trail and a full map. Every arrow goes from a topic you can use to learn another topic:
+The frontend has an all-topics graph and a local graph for the selected topic. Every arrow goes from a topic you can use to learn another topic:
 
 ```text
 Helps you learn this  ->  [ focused topic ]  ->  This helps you learn
@@ -25,7 +25,7 @@ Helps you learn this  ->  [ focused topic ]  ->  This helps you learn
 
 For example, `Formal Grammar → Parsing` means Formal Grammar helps you learn Parsing. A **required first** connection is a prerequisite; **helpful context** is optional. The web interface uses these plain-language labels while the existing API and database values remain `prerequisite` and `helpful`.
 
-Select a related topic to follow the trail, or switch to **Map** to see all topics and connections. The map supports zoom and pan; selecting a node opens it in Focus.
+Select a node to inspect it in the right pane, or switch to **Local graph** to see its immediate connections. Drag to pan and scroll to zoom.
 
 ## Local development
 
@@ -98,7 +98,24 @@ learning-links dot [-o FILE]
 The web app uses HTTP Basic authentication backed by the PostgreSQL `users` table.
 Passwords are stored as Argon2 hashes.
 
-Add a user:
+For local testing with Docker Compose, copy `.env.example` to `.env`, replace its database password, then create a login:
+
+```bash
+docker compose up -d --build
+docker compose exec app learning-links user-add you@example.com
+```
+
+Enter the email and password you just created in your browser's sign-in prompt. If you run FastAPI outside Docker, use `learning-links user-add you@example.com` with `DATABASE_URL` set instead.
+
+To skip the prompt for a local-only FastAPI process, start it with the existing development flag:
+
+```bash
+LEARNING_LINKS_DISABLE_AUTH=1 learning-links-api
+```
+
+Keep this flag off when sharing the app. PostgreSQL and `DATABASE_URL` are still required.
+
+Add another user from a local Python installation:
 
 ```bash
 learning-links user-add friend@example.com
