@@ -15,11 +15,18 @@ from .visualize import VisualizationError, render_graph, to_dot
 load_environment()
 
 DEFAULT_DATABASE_URL = os.environ.get("DATABASE_URL")
+DEFAULT_USER = os.environ.get("LEARNING_LINKS_USER")
+ADMIN_COMMANDS = {"user-add", "user-list", "user-disable", "user-enable", "user-password"}
 
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="learning-links")
     parser.add_argument("--database-url", default=DEFAULT_DATABASE_URL)
+    parser.add_argument(
+        "--user",
+        default=DEFAULT_USER,
+        help="workspace owner email (or set LEARNING_LINKS_USER)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     add = sub.add_parser("add")
@@ -147,6 +154,9 @@ def run(args):
     database_url = require_database_url(args)
 
     with Store(database_url) as store:
+        if args.command not in ADMIN_COMMANDS and args.user:
+            store.user_id = store.get_user(args.user).id
+
         if args.command == "add":
             topic = store.add_topic(args.name, args.url, args.status)
             print(f"{topic.name} [{topic.status}]")
@@ -234,7 +244,7 @@ def run(args):
 
         if args.command == "reset":
             if not args.yes:
-                answer = input("Delete all topics and encounters? [y/N] ").strip().lower()
+                answer = input("Delete all topics and encounters for this user? [y/N] ").strip().lower()
                 if answer not in ("y", "yes"):
                     print("cancelled")
                     return 1
