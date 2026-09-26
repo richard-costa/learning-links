@@ -10,12 +10,14 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     LEARNING_LINKS_HOST=0.0.0.0 \
-    LEARNING_LINKS_PORT=8000
+    LEARNING_LINKS_PORT=8000 \
+    PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir "uv>=0.9" \
+    && uv sync --frozen --no-dev --no-editable
 
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
 ENV LEARNING_LINKS_FRONTEND_DIST=/app/frontend/dist

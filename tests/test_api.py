@@ -1,5 +1,6 @@
 import os
-import unittest
+
+import pytest
 
 from learning_links.api import (
     GraphPayload,
@@ -12,14 +13,15 @@ from learning_links.store import Store
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
+pytestmark = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL is not set")
 
-@unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
-class ApiGraphTests(unittest.TestCase):
-    def setUp(self):
+
+class TestApiGraph:
+    def setup_method(self):
         self.store = Store(TEST_DATABASE_URL)
         self.store.reset()
 
-    def tearDown(self):
+    def teardown_method(self):
         self.store.reset()
         self.store.close()
 
@@ -42,9 +44,9 @@ class ApiGraphTests(unittest.TestCase):
         replace_graph(self.store, graph)
         stored = graph_from_store(self.store)
 
-        self.assertEqual([topic.name for topic in stored.topics], ["Formal Grammar", "Parsing"])
-        self.assertEqual(len(stored.relationships), 1)
-        self.assertEqual(stored.relationships[0].kind, "helpful")
+        assert [topic.name for topic in stored.topics] == ["Formal Grammar", "Parsing"]
+        assert len(stored.relationships) == 1
+        assert stored.relationships[0].kind == "helpful"
 
     def test_rejects_unknown_relationship_topic(self):
         graph = GraphPayload(
@@ -59,9 +61,5 @@ class ApiGraphTests(unittest.TestCase):
             ],
         )
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             replace_graph(self.store, graph)
-
-
-if __name__ == "__main__":
-    unittest.main()

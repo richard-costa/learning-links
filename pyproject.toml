@@ -16,9 +16,18 @@ dependencies = [
     "uvicorn>=0.34",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "uv>=0.9",
+]
+
 [project.scripts]
 learning-links = "learning_links.cli:main"
 learning-links-api = "learning_links.api:run"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

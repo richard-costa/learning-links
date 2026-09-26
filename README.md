@@ -29,34 +29,40 @@ Select a node to inspect it in the right pane, or switch to **Local graph** to s
 
 ## Local development
 
-Requires Python 3.11+, Node, and PostgreSQL.
+Requires Python 3.11+, Node, Docker Compose, and `uv`.
 
-Create the Python environment:
-
-```fish
-python -m venv .venv
-source .venv/bin/activate.fish
-python -m pip install -e .
-```
-
-Set the database connection:
+Install uv once, then create the locked development environment:
 
 ```fish
-cat > .env <<'EOF'
-DATABASE_URL=postgresql://localhost/learning_links
-LEARNING_LINKS_DISABLE_AUTH=1
-EOF
+python -m pip install --user uv
+uv sync
 ```
 
-The repository-root `.env` is loaded by `learning-links-api` and `learning-links`.
-`LEARNING_LINKS_DISABLE_AUTH=1` is for local testing only; remove it before
-sharing the application. An exported environment variable takes precedence over
-the same setting in `.env`.
+Create local configuration from the template. Use one password value consistently
+in all three URLs:
+
+```fish
+cp .env.example .env
+```
+
+Set `POSTGRES_PASSWORD` to a long random value, then replace the placeholder
+password in `DATABASE_URL` and `TEST_DATABASE_URL`. The default host port is
+`5433`, which avoids colliding with a PostgreSQL instance that already uses
+`5432`. Start the local database and wait for it to become healthy:
+
+```fish
+docker compose up -d --wait db
+```
+
+The repository-root `.env` is loaded by `learning-links-api`, `learning-links`,
+and pytest. `LEARNING_LINKS_DISABLE_AUTH=1` is for local testing only; remove
+it before sharing the application. An exported environment variable takes
+precedence over the same setting in `.env`.
 
 Run FastAPI:
 
 ```fish
-learning-links-api
+uv run learning-links-api
 ```
 
 Run Vite in another terminal:
@@ -123,9 +129,8 @@ LEARNING_LINKS_DISABLE_AUTH=1
 ```
 
 `DATABASE_URL` is still required, because bypassing authentication does not
-bypass PostgreSQL. Docker Compose reads `.env` for its own configuration, but
-the app service does not forward this development flag. Keep authentication on
-when sharing the app.
+bypass PostgreSQL. Docker Compose forwards this flag to the app service when it
+is set. Keep authentication on when sharing the app.
 
 Add another user from a local Python installation:
 
@@ -194,7 +199,7 @@ The default bindings are intentionally local-only:
 
 ```text
 127.0.0.1:8000 -> app
-127.0.0.1:5432 -> PostgreSQL
+127.0.0.1:5433 -> PostgreSQL
 ```
 
 Nothing is exposed directly to the internet.
@@ -290,18 +295,20 @@ The frontend currently saves the whole graph with `PUT /api/graph`. This is deli
 
 ## Tests
 
-Password tests do not need a database:
+Run the test suite with uv:
 
 ```bash
-python -m unittest tests.test_auth -v
+uv run pytest
 ```
 
-Database tests require a disposable PostgreSQL database:
+The database tests use `TEST_DATABASE_URL` and reset all data in that database.
+Create it once after starting PostgreSQL:
 
 ```bash
-TEST_DATABASE_URL=postgresql://localhost/learning_links_test \
-python -m unittest discover -s tests -v
+docker compose exec -T db createdb -U learning_links learning_links_test
 ```
+
+Use a separate disposable test database, never the application database.
 
 ## Roadmap
 

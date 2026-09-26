@@ -91,7 +91,7 @@ docker compose --profile public up -d
 
 Friends only need the HTTPS URL and the account/password you created for them.
 
-Do not expose port 5432 publicly. Do not expose port 8000 publicly when the tunnel is being used.
+Do not expose PostgreSQL publicly. Do not expose port 8000 publicly when the tunnel is being used.
 
 ## Disable access
 
@@ -122,3 +122,5 @@ docker compose up -d --build
 ```
 
 The PostgreSQL named volume remains in place when the application container is rebuilt.
+The image installs its locked production dependencies with uv; no Python setup is
+needed on the VM outside Docker.
