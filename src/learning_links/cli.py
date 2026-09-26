@@ -224,7 +224,7 @@ def run(args):
             else:
                 print("  —")
 
-            print("\nFlagged while studying this:")
+            print("\nLed me to:")
             if flagged:
                 for other, reason, note in flagged:
                     print(_format_encounter(other, reason, note))
