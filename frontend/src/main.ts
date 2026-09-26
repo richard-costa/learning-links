@@ -1,4 +1,5 @@
 import "./style.css";
+import { loadGraph, saveGraph } from "./api";
 import { TopicGraph, type GraphSelection } from "./graph";
 import {
   RELATIONSHIP_KINDS,
@@ -11,14 +12,15 @@ import {
   type TopicStatus,
   uniqueTopicId,
 } from "./model";
-import { clearGraph, loadGraph, resetGraph, saveGraph } from "./storage";
+import { sampleGraph } from "./storage";
 
 type ViewMode = "all" | "isolated" | "important";
 
-let data: GraphData = loadGraph();
+let data: GraphData = { topics: [], relationships: [] };
 let selection: GraphSelection = null;
 let view: ViewMode = "all";
 let search = "";
+let graphReady = false;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root not found");
@@ -31,7 +33,9 @@ app.innerHTML = `
         <span>Build and explore relationships between topics.</span>
       </div>
       <div class="top-actions">
-        <button id="fit-graph" type="button">Fit graph</button>
+        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        <button id="fit-graph" type="button">Fit</button>
         <button id="add-topic" type="button" class="primary">+ Topic</button>
       </div>
     </header>
@@ -40,7 +44,7 @@ app.innerHTML = `
       <aside class="sidebar" aria-label="Topics">
         <div class="section-heading">
           <h2>Topics</h2>
-          <button id="reset-sample" type="button">Reset</button>
+          <button id="reset-sample" type="button">Load sample</button>
         </div>
 
         <input id="search" class="search" type="search"
@@ -98,7 +102,7 @@ app.innerHTML = `
             ${STATUSES.map((status) => `<option value="${status}">${status}</option>`).join("")}
           </select>
         </label>
-        <label>Reference URL <span class="muted">(optional)</span>
+        <label>Reference URL
           <input id="topic-url" type="url" placeholder="https://…" />
         </label>
         <div class="dialog-actions">
@@ -172,7 +176,8 @@ const relationshipKindInput = byId<HTMLSelectElement>("relationship-kind");
 const graph = new TopicGraph(byId<HTMLDivElement>("graph"), {
   onSelect: (nextSelection) => {
     selection = nextSelection;
-    render(false);
+    renderUi();
+    graph.setSelection(selection);
     if (nextSelection) inspector.classList.add("open");
   },
 });
@@ -192,30 +197,14 @@ function setMessage(text: string): void {
 
 function filteredTopics() {
   const counts = supportCounts(data);
-  const maxImportance = Math.max(
-    0,
-    ...[...counts.values()].map((count) => count.outgoing),
-  );
+  const maxImportance = Math.max(0, ...[...counts.values()].map((c) => c.outgoing));
   const query = search.trim().toLowerCase();
 
   return [...data.topics]
     .filter((topic) => {
       const count = counts.get(topic.id) ?? { incoming: 0, outgoing: 0 };
-
-      if (
-        view === "isolated" &&
-        (count.incoming > 0 || count.outgoing > 0)
-      ) {
-        return false;
-      }
-
-      if (
-        view === "important" &&
-        (maxImportance === 0 || count.outgoing < maxImportance)
-      ) {
-        return false;
-      }
-
+      if (view === "isolated" && (count.incoming > 0 || count.outgoing > 0)) return false;
+      if (view === "important" && (maxImportance === 0 || count.outgoing < maxImportance)) return false;
       return !query || topic.name.toLowerCase().includes(query);
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -225,40 +214,24 @@ function renderTopicList(): void {
   const counts = supportCounts(data);
   const topics = filteredTopics();
 
-  if (topics.length === 0) {
-    topicList.innerHTML =
-      `<p class="empty-state">No topics match this view.</p>`;
-    return;
-  }
-
-  topicList.innerHTML = topics
-    .map((topic) => {
-      const count = counts.get(topic.id) ?? { incoming: 0, outgoing: 0 };
-      const selected =
-        selection?.type === "topic" && selection.id === topic.id
-          ? " selected"
-          : "";
-
-      return `
-        <button type="button" class="topic-item${selected}"
-          data-select-topic="${escapeHtml(topic.id)}">
-          <span class="name">${escapeHtml(topic.name)}</span>
-          <span class="meta">${count.outgoing} →</span>
-        </button>`;
-    })
-    .join("");
+  topicList.innerHTML = topics.length
+    ? topics.map((topic) => {
+        const count = counts.get(topic.id) ?? { incoming: 0, outgoing: 0 };
+        const selected = selection?.type === "topic" && selection.id === topic.id ? " selected" : "";
+        return `
+          <button type="button" class="topic-item${selected}" data-select-topic="${escapeHtml(topic.id)}">
+            <span class="name">${escapeHtml(topic.name)}</span>
+            <span class="meta">${count.outgoing} →</span>
+          </button>`;
+      }).join("")
+    : `<p class="empty-state">No topics match this view.</p>`;
 }
 
 function renderStats(): void {
   const counts = supportCounts(data);
-  const isolated = [...counts.values()].filter(
-    (count) => count.incoming === 0 && count.outgoing === 0,
-  ).length;
-
+  const isolated = [...counts.values()].filter((c) => c.incoming === 0 && c.outgoing === 0).length;
   byId<HTMLElement>("topic-count").textContent = String(data.topics.length);
-  byId<HTMLElement>("relationship-count").textContent = String(
-    data.relationships.length,
-  );
+  byId<HTMLElement>("relationship-count").textContent = String(data.relationships.length);
   byId<HTMLElement>("isolated-count").textContent = String(isolated);
 }
 
@@ -267,155 +240,99 @@ function renderInspector(): void {
     inspectorContent.innerHTML = `
       <div class="section-heading">
         <h2>Inspect</h2>
-        <button type="button" class="icon-button"
-          data-close-inspector aria-label="Close inspector">×</button>
+        <button type="button" class="icon-button" data-close-inspector aria-label="Close inspector">×</button>
       </div>
-      <p class="empty-state">
-        Select a topic to see what supports it, what it supports,
-        and to add new relationships.
-      </p>`;
+      <p class="empty-state">Select a topic or relationship.</p>`;
     return;
   }
 
-  const currentSelection = selection;
-
-  if (currentSelection.type === "relationship") {
-    const relationship = data.relationships.find(
-      (item) => item.id === currentSelection.id,
-    );
-
+  if (selection.type === "relationship") {
+    const relationship = data.relationships.find((item) => item.id === selection?.id);
     if (!relationship) {
       selection = null;
       renderInspector();
       return;
     }
-
     const source = topicById(data, relationship.source);
     const target = topicById(data, relationship.target);
-
     inspectorContent.innerHTML = `
       <div class="section-heading">
         <span class="eyebrow">Relationship</span>
-        <button type="button" class="icon-button"
-          data-close-inspector aria-label="Close inspector">×</button>
+        <button type="button" class="icon-button" data-close-inspector aria-label="Close inspector">×</button>
       </div>
-      <h2>
-        ${escapeHtml(source?.name ?? relationship.source)}
-        →
-        ${escapeHtml(target?.name ?? relationship.target)}
-      </h2>
+      <h2>${escapeHtml(source?.name ?? relationship.source)} → ${escapeHtml(target?.name ?? relationship.target)}</h2>
       <p><span class="status">${escapeHtml(relationship.kind)}</span></p>
-      <p class="empty-state">
-        Arrows point from the supporting topic to the topic being learned.
-      </p>
       <div class="inspector-actions">
-        <button type="button" class="danger"
-          data-delete-relationship="${escapeHtml(relationship.id)}">
-          Delete relationship
-        </button>
+        <button type="button" class="danger" data-delete-relationship="${escapeHtml(relationship.id)}">Delete relationship</button>
       </div>`;
     return;
   }
 
-  const topic = topicById(data, currentSelection.id);
-
+  const topic = topicById(data, selection.id);
   if (!topic) {
     selection = null;
     renderInspector();
     return;
   }
 
-  const incoming = data.relationships.filter(
-    (relationship) => relationship.target === topic.id,
-  );
-  const outgoing = data.relationships.filter(
-    (relationship) => relationship.source === topic.id,
-  );
+  const incoming = data.relationships.filter((r) => r.target === topic.id);
+  const outgoing = data.relationships.filter((r) => r.source === topic.id);
 
-  const relationRows = (
-    relationships: typeof incoming,
-    direction: "incoming" | "outgoing",
-  ) => {
-    if (relationships.length === 0) {
-      return `<p class="empty-state">None yet.</p>`;
-    }
-
-    return `<div class="relation-list">${relationships
-      .map((relationship) => {
-        const otherId =
-          direction === "incoming"
-            ? relationship.source
-            : relationship.target;
-        const other = topicById(data, otherId);
-
-        return `
-          <button type="button" class="relation-row"
-            data-select-topic="${escapeHtml(otherId)}">
-            <span>${escapeHtml(other?.name ?? otherId)}</span>
-            <small>${escapeHtml(relationship.kind)}</small>
+  const rows = (relationships: typeof incoming, incomingDirection: boolean) =>
+    relationships.length
+      ? `<div class="relation-list">${relationships.map((r) => {
+          const otherId = incomingDirection ? r.source : r.target;
+          const other = topicById(data, otherId);
+          return `<button type="button" class="relation-row" data-select-topic="${escapeHtml(otherId)}">
+            <span>${escapeHtml(other?.name ?? otherId)}</span><small>${escapeHtml(r.kind)}</small>
           </button>`;
-      })
-      .join("")}</div>`;
-  };
+        }).join("")}</div>`
+      : `<p class="empty-state">None yet.</p>`;
 
   inspectorContent.innerHTML = `
     <div class="section-heading">
       <span class="eyebrow">Topic</span>
-      <button type="button" class="icon-button"
-        data-close-inspector aria-label="Close inspector">×</button>
+      <button type="button" class="icon-button" data-close-inspector aria-label="Close inspector">×</button>
     </div>
-
     <div class="inspector-title">
       <h2>${escapeHtml(topic.name)}</h2>
       <span class="status">${escapeHtml(topic.status)}</span>
     </div>
-
-    ${
-      topic.url
-        ? `<a class="reference-link"
-             href="${escapeHtml(topic.url)}"
-             target="_blank" rel="noreferrer">Open reference ↗</a>`
-        : ""
-    }
-
+    ${topic.url ? `<a class="reference-link" href="${escapeHtml(topic.url)}" target="_blank" rel="noreferrer">Open reference ↗</a>` : ""}
     <div class="inspector-actions">
-      <button type="button" class="primary"
-        data-add-relationship="${escapeHtml(topic.id)}">+ Relationship</button>
-      <button type="button"
-        data-edit-topic="${escapeHtml(topic.id)}">Edit</button>
-      <button type="button" class="danger"
-        data-delete-topic="${escapeHtml(topic.id)}">Delete</button>
+      <button type="button" class="primary" data-add-relationship="${escapeHtml(topic.id)}">+ Relationship</button>
+      <button type="button" data-edit-topic="${escapeHtml(topic.id)}">Edit</button>
+      <button type="button" class="danger" data-delete-topic="${escapeHtml(topic.id)}">Delete</button>
     </div>
-
-    <section class="relation-section">
-      <h3>Supported by · ${incoming.length}</h3>
-      ${relationRows(incoming, "incoming")}
-    </section>
-
-    <section class="relation-section">
-      <h3>Supports · ${outgoing.length}</h3>
-      ${relationRows(outgoing, "outgoing")}
-    </section>`;
+    <section class="relation-section"><h3>Supported by · ${incoming.length}</h3>${rows(incoming, true)}</section>
+    <section class="relation-section"><h3>Supports · ${outgoing.length}</h3>${rows(outgoing, false)}</section>`;
 }
 
-function render(runLayout = true): void {
+function renderUi(): void {
   renderTopicList();
   renderStats();
   renderInspector();
-  graph.render(data, selection, runLayout);
   graph.applyView(view, search);
-
-  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach(
-    (button) => {
-      button.classList.toggle("active", button.dataset.view === view);
-    },
-  );
+  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
 }
 
-function persist(messageText: string): void {
-  saveGraph(data);
-  setMessage(messageText);
-  render(true);
+function renderData(runLayout = true): void {
+  graph.setData(data, runLayout);
+  graph.setSelection(selection);
+  graphReady = true;
+  renderUi();
+}
+
+async function persist(messageText: string): Promise<void> {
+  try {
+    await saveGraph(data);
+    setMessage(messageText);
+    renderData(true);
+  } catch (error) {
+    setMessage(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function openNewTopic(): void {
@@ -431,59 +348,39 @@ function openNewTopic(): void {
 function openEditTopic(id: string): void {
   const topic = topicById(data, id);
   if (!topic) return;
-
   topicDialogTitle.textContent = "Edit topic";
   topicIdInput.value = topic.id;
   topicNameInput.value = topic.name;
   topicStatusInput.value = topic.status;
   topicUrlInput.value = topic.url;
   topicDialog.showModal();
-  topicNameInput.focus();
 }
 
 function openRelationshipDialog(topicId: string): void {
-  const topic = topicById(data, topicId);
-  if (!topic) return;
-
-  const others = data.topics
-    .filter((candidate) => candidate.id !== topicId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  if (others.length === 0) {
-    setMessage("Add another topic before creating a relationship.");
+  const others = data.topics.filter((topic) => topic.id !== topicId).sort((a, b) => a.name.localeCompare(b.name));
+  if (!others.length) {
+    setMessage("Add another topic first.");
     return;
   }
 
   relationshipTopicId.value = topicId;
   relationshipDirection.value = "supports";
   relationshipKindInput.value = "helpful";
-  relationshipOther.innerHTML = others
-    .map(
-      (candidate) =>
-        `<option value="${escapeHtml(candidate.id)}">${escapeHtml(candidate.name)}</option>`,
-    )
-    .join("");
-
+  relationshipOther.innerHTML = others.map((topic) =>
+    `<option value="${escapeHtml(topic.id)}">${escapeHtml(topic.name)}</option>`
+  ).join("");
   relationshipDialog.showModal();
 }
 
-topicForm.addEventListener("submit", (event) => {
+topicForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-
   const id = topicIdInput.value;
   const name = topicNameInput.value.trim();
   const status = topicStatusInput.value as TopicStatus;
   const url = topicUrlInput.value.trim();
-
   if (!name) return;
 
-  const duplicate = data.topics.some(
-    (topic) =>
-      topic.id !== id &&
-      topic.name.toLowerCase() === name.toLowerCase(),
-  );
-
-  if (duplicate) {
+  if (data.topics.some((topic) => topic.id !== id && topic.name.toLowerCase() === name.toLowerCase())) {
     setMessage("A topic with that name already exists.");
     return;
   }
@@ -491,192 +388,106 @@ topicForm.addEventListener("submit", (event) => {
   if (id) {
     const topic = topicById(data, id);
     if (!topic) return;
-
     topic.name = name;
     topic.status = status;
     topic.url = url;
     selection = { type: "topic", id };
-    topicDialog.close();
-    persist(`Updated “${name}”.`);
-    return;
+  } else {
+    const topic = { id: uniqueTopicId(data, name), name, status, url };
+    data.topics.push(topic);
+    selection = { type: "topic", id: topic.id };
   }
 
-  const newTopic = {
-    id: uniqueTopicId(data, name),
-    name,
-    status,
-    url,
-  };
-
-  data.topics.push(newTopic);
-  selection = { type: "topic", id: newTopic.id };
   topicDialog.close();
-  persist(`Added “${name}”.`);
+  await persist(id ? `Updated “${name}”.` : `Added “${name}”.`);
 });
 
-relationshipForm.addEventListener("submit", (event) => {
+relationshipForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-
   const selectedTopic = relationshipTopicId.value;
   const otherTopic = relationshipOther.value;
   const kind = relationshipKindInput.value as RelationshipKind;
-
-  const source =
-    relationshipDirection.value === "supports"
-      ? selectedTopic
-      : otherTopic;
-  const target =
-    relationshipDirection.value === "supports"
-      ? otherTopic
-      : selectedTopic;
-
+  const source = relationshipDirection.value === "supports" ? selectedTopic : otherTopic;
+  const target = relationshipDirection.value === "supports" ? otherTopic : selectedTopic;
   const id = relationshipId(source, target);
 
-  const existing = data.relationships.find(
-    (relationship) =>
-      relationship.source === source &&
-      relationship.target === target,
-  );
+  const existing = data.relationships.find((r) => r.source === source && r.target === target);
+  if (existing) existing.kind = kind;
+  else data.relationships.push({ id, source, target, kind });
 
-  if (existing) {
-    existing.kind = kind;
-    selection = { type: "relationship", id: existing.id };
-    relationshipDialog.close();
-    persist("Updated the existing relationship.");
-    return;
-  }
-
-  data.relationships.push({ id, source, target, kind });
   selection = { type: "relationship", id };
   relationshipDialog.close();
-  persist("Relationship added.");
+  await persist(existing ? "Relationship updated." : "Relationship added.");
 });
 
-document.addEventListener("click", (event) => {
-  const target = event.target as HTMLElement;
-  const button = target.closest<HTMLButtonElement>("button");
+document.addEventListener("click", async (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
   if (!button) return;
 
   if (button.id === "add-topic") openNewTopic();
   if (button.id === "fit-graph") graph.fit();
+  if (button.id === "zoom-in") graph.zoomIn();
+  if (button.id === "zoom-out") graph.zoomOut();
 
-  if (button.dataset.closeDialog) {
-    byId<HTMLDialogElement>(button.dataset.closeDialog).close();
-  }
+  if (button.dataset.closeDialog) byId<HTMLDialogElement>(button.dataset.closeDialog).close();
 
   if (button.dataset.view) {
     view = button.dataset.view as ViewMode;
-    render(false);
+    renderUi();
   }
 
   if (button.dataset.selectTopic) {
     selection = { type: "topic", id: button.dataset.selectTopic };
     inspector.classList.add("open");
-    render(false);
+    graph.setSelection(selection);
+    renderUi();
   }
 
-  if (button.dataset.editTopic) {
-    openEditTopic(button.dataset.editTopic);
-  }
-
-  if (button.dataset.addRelationship) {
-    openRelationshipDialog(button.dataset.addRelationship);
-  }
+  if (button.dataset.editTopic) openEditTopic(button.dataset.editTopic);
+  if (button.dataset.addRelationship) openRelationshipDialog(button.dataset.addRelationship);
 
   if (button.dataset.deleteTopic) {
     const topic = topicById(data, button.dataset.deleteTopic);
-
-    if (
-      !topic ||
-      !confirm(
-        `Delete “${topic.name}” and all of its relationships?`,
-      )
-    ) {
-      return;
-    }
-
-    data.topics = data.topics.filter(
-      (candidate) => candidate.id !== topic.id,
-    );
-    data.relationships = data.relationships.filter(
-      (relationship) =>
-        relationship.source !== topic.id &&
-        relationship.target !== topic.id,
-    );
-
+    if (!topic || !confirm(`Delete “${topic.name}” and all its relationships?`)) return;
+    data.topics = data.topics.filter((candidate) => candidate.id !== topic.id);
+    data.relationships = data.relationships.filter((r) => r.source !== topic.id && r.target !== topic.id);
     selection = null;
-    inspector.classList.remove("open");
-    persist(`Deleted “${topic.name}”.`);
+    await persist(`Deleted “${topic.name}”.`);
   }
 
   if (button.dataset.deleteRelationship) {
-    data.relationships = data.relationships.filter(
-      (relationship) =>
-        relationship.id !== button.dataset.deleteRelationship,
-    );
-
+    data.relationships = data.relationships.filter((r) => r.id !== button.dataset.deleteRelationship);
     selection = null;
-    inspector.classList.remove("open");
-    persist("Relationship deleted.");
+    await persist("Relationship deleted.");
   }
 
   if (button.id === "reset-sample") {
-    if (
-      !confirm(
-        "Restore the sample graph? Your browser-only changes will be replaced.",
-      )
-    ) {
-      return;
-    }
-
-    data = resetGraph();
+    if (!confirm("Replace the database contents with the sample graph?")) return;
+    data = sampleGraph();
     selection = null;
-    view = "all";
-    search = "";
-    searchInput.value = "";
-    inspector.classList.remove("open");
-    setMessage("Sample graph restored.");
-    render(true);
+    await persist("Sample graph loaded.");
+    requestAnimationFrame(() => graph.fit());
   }
 
-  if (button.dataset.closeInspector !== undefined) {
-    inspector.classList.remove("open");
-  }
+  if (button.dataset.closeInspector !== undefined) inspector.classList.remove("open");
 });
 
 searchInput.addEventListener("input", () => {
   search = searchInput.value;
-  render(false);
+  renderUi();
 });
 
-// Development convenience: Shift+click Reset clears the graph entirely.
-byId<HTMLButtonElement>("reset-sample").addEventListener(
-  "click",
-  (event) => {
-    if (!event.shiftKey) return;
+async function start(): Promise<void> {
+  try {
+    data = await loadGraph();
+    setMessage("Connected to FastAPI.");
+  } catch (error) {
+    setMessage(`API unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    data = { topics: [], relationships: [] };
+  }
 
-    event.preventDefault();
-    event.stopPropagation();
+  renderData(true);
+  requestAnimationFrame(() => graph.fit());
+}
 
-    if (
-      !confirm(
-        "Clear every topic and relationship from this browser?",
-      )
-    ) {
-      return;
-    }
-
-    data = clearGraph();
-    selection = null;
-    view = "all";
-    search = "";
-    searchInput.value = "";
-    inspector.classList.remove("open");
-    setMessage("Graph cleared.");
-    render(true);
-  },
-  { capture: true },
-);
-
-render(true);
-requestAnimationFrame(() => graph.fit());
+void start();
