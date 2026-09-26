@@ -1,6 +1,5 @@
 import "./style.css";
 import { loadGraph, saveGraph } from "./api";
-import { TopicGraph, type GraphSelection } from "./graph";
 import {
   RELATIONSHIP_KINDS,
   STATUSES,
@@ -14,137 +13,83 @@ import {
 } from "./model";
 import { sampleGraph } from "./storage";
 
-type ViewMode = "all" | "isolated" | "important";
-
 let data: GraphData = { topics: [], relationships: [] };
-let selection: GraphSelection = null;
-let view: ViewMode = "all";
+let selectedTopicId: string | null = null;
 let search = "";
-let graphReady = false;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root not found");
 
 app.innerHTML = `
-  <div class="app">
+  <div class="app-shell">
     <header class="topbar">
-      <div class="brand">
+      <div>
         <strong>learning-links</strong>
-        <span>Build and explore relationships between topics.</span>
+        <span>Focus on one topic. Follow what supports it and what it supports.</span>
       </div>
       <div class="top-actions">
-        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
-        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
-        <button id="fit-graph" type="button">Fit</button>
+        <button id="load-sample" type="button">Load sample</button>
         <button id="add-topic" type="button" class="primary">+ Topic</button>
       </div>
     </header>
 
     <main class="workspace">
-      <aside class="sidebar" aria-label="Topics">
-        <div class="section-heading">
-          <h2>Topics</h2>
-          <button id="reset-sample" type="button">Load sample</button>
-        </div>
-
-        <input id="search" class="search" type="search"
-          placeholder="Search topics" aria-label="Search topics" />
-
-        <div class="view-tabs" role="group" aria-label="Topic view">
-          <button type="button" data-view="all" class="active">All</button>
-          <button type="button" data-view="isolated">Isolated</button>
-          <button type="button" data-view="important">Important</button>
-        </div>
-
+      <aside class="sidebar">
+        <input id="search" class="search" type="search" placeholder="Search topics" />
         <div id="topic-list" class="topic-list"></div>
-
-        <div class="stats" aria-label="Graph summary">
-          <div><strong id="topic-count">0</strong><span>topics</span></div>
-          <div><strong id="relationship-count">0</strong><span>links</span></div>
-          <div><strong id="isolated-count">0</strong><span>isolated</span></div>
-        </div>
         <p id="message" class="message" aria-live="polite"></p>
       </aside>
 
-      <section class="graph-area" aria-label="Learning graph">
-        <div class="graph-toolbar">
-          <div class="legend" aria-label="Relationship legend">
-            <span><i class="prerequisite"></i> prerequisite</span>
-            <span><i class="helpful"></i> helpful</span>
-          </div>
-        </div>
-        <div id="graph"></div>
-      </section>
-
-      <aside id="inspector" class="inspector" aria-label="Selection details">
-        <div id="inspector-content"></div>
-      </aside>
+      <section id="focus-view" class="focus-view"></section>
     </main>
   </div>
 
   <dialog id="topic-dialog" class="dialog">
-    <div class="dialog-body">
+    <form id="topic-form">
+      <input id="topic-id" type="hidden" />
       <div class="dialog-header">
-        <div>
-          <span class="eyebrow">Topic</span>
-          <h2 id="topic-dialog-title">Add topic</h2>
-        </div>
-        <button type="button" class="icon-button"
-          data-close-dialog="topic-dialog" aria-label="Close">×</button>
+        <h2 id="topic-dialog-title">Add topic</h2>
+        <button type="button" class="quiet" data-close="topic-dialog">×</button>
       </div>
-      <form id="topic-form">
-        <input id="topic-id" type="hidden" />
-        <label>Name
-          <input id="topic-name" required maxlength="100" autocomplete="off" />
-        </label>
-        <label>Status
-          <select id="topic-status">
-            ${STATUSES.map((status) => `<option value="${status}">${status}</option>`).join("")}
-          </select>
-        </label>
-        <label>Reference URL
-          <input id="topic-url" type="url" placeholder="https://…" />
-        </label>
-        <div class="dialog-actions">
-          <button type="button" data-close-dialog="topic-dialog">Cancel</button>
-          <button type="submit" class="primary">Save topic</button>
-        </div>
-      </form>
-    </div>
+      <label>Name
+        <input id="topic-name" required maxlength="100" autocomplete="off" />
+      </label>
+      <label>Status
+        <select id="topic-status">
+          ${STATUSES.map((status) => `<option value="${status}">${status}</option>`).join("")}
+        </select>
+      </label>
+      <label>Reference URL
+        <input id="topic-url" type="url" placeholder="https://…" />
+      </label>
+      <div class="dialog-actions">
+        <button type="button" data-close="topic-dialog">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="relationship-dialog" class="dialog">
-    <div class="dialog-body">
+    <form id="relationship-form">
+      <input id="relationship-topic-id" type="hidden" />
+      <input id="relationship-direction" type="hidden" />
       <div class="dialog-header">
-        <div>
-          <span class="eyebrow">Relationship</span>
-          <h2>Add relationship</h2>
-        </div>
-        <button type="button" class="icon-button"
-          data-close-dialog="relationship-dialog" aria-label="Close">×</button>
+        <h2 id="relationship-title">Add relationship</h2>
+        <button type="button" class="quiet" data-close="relationship-dialog">×</button>
       </div>
-      <form id="relationship-form">
-        <input id="relationship-topic-id" type="hidden" />
-        <label>Direction
-          <select id="relationship-direction">
-            <option value="supports">This topic supports…</option>
-            <option value="supported-by">This topic is supported by…</option>
-          </select>
-        </label>
-        <label>Other topic
-          <select id="relationship-other" required></select>
-        </label>
-        <label>Relationship
-          <select id="relationship-kind">
-            ${RELATIONSHIP_KINDS.map((kind) => `<option value="${kind}">${kind}</option>`).join("")}
-          </select>
-        </label>
-        <div class="dialog-actions">
-          <button type="button" data-close-dialog="relationship-dialog">Cancel</button>
-          <button type="submit" class="primary">Add relationship</button>
-        </div>
-      </form>
-    </div>
+      <label>Topic
+        <select id="relationship-other"></select>
+      </label>
+      <label>Relationship
+        <select id="relationship-kind">
+          ${RELATIONSHIP_KINDS.map((kind) => `<option value="${kind}">${kind}</option>`).join("")}
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" data-close="relationship-dialog">Cancel</button>
+        <button type="submit" class="primary">Add</button>
+      </div>
+    </form>
   </dialog>
 `;
 
@@ -155,8 +100,7 @@ function byId<T extends HTMLElement>(id: string): T {
 }
 
 const topicList = byId<HTMLDivElement>("topic-list");
-const inspector = byId<HTMLElement>("inspector");
-const inspectorContent = byId<HTMLDivElement>("inspector-content");
+const focusView = byId<HTMLElement>("focus-view");
 const searchInput = byId<HTMLInputElement>("search");
 const message = byId<HTMLParagraphElement>("message");
 const topicDialog = byId<HTMLDialogElement>("topic-dialog");
@@ -169,18 +113,10 @@ const topicDialogTitle = byId<HTMLHeadingElement>("topic-dialog-title");
 const relationshipDialog = byId<HTMLDialogElement>("relationship-dialog");
 const relationshipForm = byId<HTMLFormElement>("relationship-form");
 const relationshipTopicId = byId<HTMLInputElement>("relationship-topic-id");
-const relationshipDirection = byId<HTMLSelectElement>("relationship-direction");
+const relationshipDirection = byId<HTMLInputElement>("relationship-direction");
 const relationshipOther = byId<HTMLSelectElement>("relationship-other");
 const relationshipKindInput = byId<HTMLSelectElement>("relationship-kind");
-
-const graph = new TopicGraph(byId<HTMLDivElement>("graph"), {
-  onSelect: (nextSelection) => {
-    selection = nextSelection;
-    renderUi();
-    graph.setSelection(selection);
-    if (nextSelection) inspector.classList.add("open");
-  },
-});
+const relationshipTitle = byId<HTMLHeadingElement>("relationship-title");
 
 function escapeHtml(value: string): string {
   return value
@@ -195,141 +131,111 @@ function setMessage(text: string): void {
   message.textContent = text;
 }
 
-function filteredTopics() {
+function renderTopics(): void {
   const counts = supportCounts(data);
-  const maxImportance = Math.max(0, ...[...counts.values()].map((c) => c.outgoing));
   const query = search.trim().toLowerCase();
-
-  return [...data.topics]
-    .filter((topic) => {
-      const count = counts.get(topic.id) ?? { incoming: 0, outgoing: 0 };
-      if (view === "isolated" && (count.incoming > 0 || count.outgoing > 0)) return false;
-      if (view === "important" && (maxImportance === 0 || count.outgoing < maxImportance)) return false;
-      return !query || topic.name.toLowerCase().includes(query);
-    })
+  const topics = [...data.topics]
+    .filter((topic) => !query || topic.name.toLowerCase().includes(query))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function renderTopicList(): void {
-  const counts = supportCounts(data);
-  const topics = filteredTopics();
 
   topicList.innerHTML = topics.length
     ? topics.map((topic) => {
         const count = counts.get(topic.id) ?? { incoming: 0, outgoing: 0 };
-        const selected = selection?.type === "topic" && selection.id === topic.id ? " selected" : "";
+        const selected = topic.id === selectedTopicId ? " selected" : "";
         return `
-          <button type="button" class="topic-item${selected}" data-select-topic="${escapeHtml(topic.id)}">
-            <span class="name">${escapeHtml(topic.name)}</span>
-            <span class="meta">${count.outgoing} →</span>
+          <button class="topic-row${selected}" type="button" data-topic="${escapeHtml(topic.id)}">
+            <span>${escapeHtml(topic.name)}</span>
+            <small>${count.outgoing} supports</small>
           </button>`;
       }).join("")
-    : `<p class="empty-state">No topics match this view.</p>`;
+    : `<p class="empty">No matching topics.</p>`;
 }
 
-function renderStats(): void {
-  const counts = supportCounts(data);
-  const isolated = [...counts.values()].filter((c) => c.incoming === 0 && c.outgoing === 0).length;
-  byId<HTMLElement>("topic-count").textContent = String(data.topics.length);
-  byId<HTMLElement>("relationship-count").textContent = String(data.relationships.length);
-  byId<HTMLElement>("isolated-count").textContent = String(isolated);
+function relationCard(topicId: string, kind: RelationshipKind, relationshipIdValue: string): string {
+  const topic = topicById(data, topicId);
+  if (!topic) return "";
+  return `
+    <div class="relation-card">
+      <button class="relation-main" type="button" data-topic="${escapeHtml(topic.id)}">
+        <strong>${escapeHtml(topic.name)}</strong>
+        <span class="kind ${escapeHtml(kind)}">${escapeHtml(kind)}</span>
+      </button>
+      <button class="remove-link quiet" type="button"
+        data-remove-link="${escapeHtml(relationshipIdValue)}"
+        aria-label="Remove relationship">×</button>
+    </div>`;
 }
 
-function renderInspector(): void {
-  if (!selection) {
-    inspectorContent.innerHTML = `
-      <div class="section-heading">
-        <h2>Inspect</h2>
-        <button type="button" class="icon-button" data-close-inspector aria-label="Close inspector">×</button>
-      </div>
-      <p class="empty-state">Select a topic or relationship.</p>`;
-    return;
-  }
+function renderFocus(): void {
+  if (!selectedTopicId && data.topics.length) selectedTopicId = data.topics[0].id;
+  const topic = selectedTopicId ? topicById(data, selectedTopicId) : undefined;
 
-  if (selection.type === "relationship") {
-    const relationship = data.relationships.find((item) => item.id === selection?.id);
-    if (!relationship) {
-      selection = null;
-      renderInspector();
-      return;
-    }
-    const source = topicById(data, relationship.source);
-    const target = topicById(data, relationship.target);
-    inspectorContent.innerHTML = `
-      <div class="section-heading">
-        <span class="eyebrow">Relationship</span>
-        <button type="button" class="icon-button" data-close-inspector aria-label="Close inspector">×</button>
-      </div>
-      <h2>${escapeHtml(source?.name ?? relationship.source)} → ${escapeHtml(target?.name ?? relationship.target)}</h2>
-      <p><span class="status">${escapeHtml(relationship.kind)}</span></p>
-      <div class="inspector-actions">
-        <button type="button" class="danger" data-delete-relationship="${escapeHtml(relationship.id)}">Delete relationship</button>
+  if (!topic) {
+    focusView.innerHTML = `
+      <div class="welcome">
+        <h1>No topics yet</h1>
+        <p>Add a topic to start building your learning map.</p>
+        <button type="button" class="primary" id="welcome-add">+ Add topic</button>
       </div>`;
     return;
   }
 
-  const topic = topicById(data, selection.id);
-  if (!topic) {
-    selection = null;
-    renderInspector();
-    return;
-  }
+  const incoming = data.relationships.filter((relationship) => relationship.target === topic.id);
+  const outgoing = data.relationships.filter((relationship) => relationship.source === topic.id);
 
-  const incoming = data.relationships.filter((r) => r.target === topic.id);
-  const outgoing = data.relationships.filter((r) => r.source === topic.id);
+  focusView.innerHTML = `
+    <div class="focus-map">
+      <section class="relation-column supported-by">
+        <div class="column-heading">
+          <div><span>Supported by</span><small>${incoming.length}</small></div>
+          <button type="button" class="quiet add-link"
+            data-add-link="supported-by" data-topic-id="${escapeHtml(topic.id)}">+</button>
+        </div>
+        <div class="relation-stack">
+          ${incoming.length
+            ? incoming.map((relationship) => relationCard(relationship.source, relationship.kind, relationship.id)).join("")
+            : `<p class="empty">Nothing yet.</p>`}
+        </div>
+      </section>
 
-  const rows = (relationships: typeof incoming, incomingDirection: boolean) =>
-    relationships.length
-      ? `<div class="relation-list">${relationships.map((r) => {
-          const otherId = incomingDirection ? r.source : r.target;
-          const other = topicById(data, otherId);
-          return `<button type="button" class="relation-row" data-select-topic="${escapeHtml(otherId)}">
-            <span>${escapeHtml(other?.name ?? otherId)}</span><small>${escapeHtml(r.kind)}</small>
-          </button>`;
-        }).join("")}</div>`
-      : `<p class="empty-state">None yet.</p>`;
+      <article class="focus-card">
+        <span class="status">${escapeHtml(topic.status)}</span>
+        <h1>${escapeHtml(topic.name)}</h1>
+        <p class="summary">${incoming.length} supporting · ${outgoing.length} supported</p>
+        <div class="focus-actions">
+          ${topic.url
+            ? `<a class="button-link" href="${escapeHtml(topic.url)}" target="_blank" rel="noreferrer">Reference ↗</a>`
+            : ""}
+          <button type="button" data-edit-topic="${escapeHtml(topic.id)}">Edit</button>
+          <button type="button" class="danger" data-delete-topic="${escapeHtml(topic.id)}">Delete</button>
+        </div>
+      </article>
 
-  inspectorContent.innerHTML = `
-    <div class="section-heading">
-      <span class="eyebrow">Topic</span>
-      <button type="button" class="icon-button" data-close-inspector aria-label="Close inspector">×</button>
-    </div>
-    <div class="inspector-title">
-      <h2>${escapeHtml(topic.name)}</h2>
-      <span class="status">${escapeHtml(topic.status)}</span>
-    </div>
-    ${topic.url ? `<a class="reference-link" href="${escapeHtml(topic.url)}" target="_blank" rel="noreferrer">Open reference ↗</a>` : ""}
-    <div class="inspector-actions">
-      <button type="button" class="primary" data-add-relationship="${escapeHtml(topic.id)}">+ Relationship</button>
-      <button type="button" data-edit-topic="${escapeHtml(topic.id)}">Edit</button>
-      <button type="button" class="danger" data-delete-topic="${escapeHtml(topic.id)}">Delete</button>
-    </div>
-    <section class="relation-section"><h3>Supported by · ${incoming.length}</h3>${rows(incoming, true)}</section>
-    <section class="relation-section"><h3>Supports · ${outgoing.length}</h3>${rows(outgoing, false)}</section>`;
+      <section class="relation-column supports">
+        <div class="column-heading">
+          <div><span>Supports</span><small>${outgoing.length}</small></div>
+          <button type="button" class="quiet add-link"
+            data-add-link="supports" data-topic-id="${escapeHtml(topic.id)}">+</button>
+        </div>
+        <div class="relation-stack">
+          ${outgoing.length
+            ? outgoing.map((relationship) => relationCard(relationship.target, relationship.kind, relationship.id)).join("")
+            : `<p class="empty">Nothing yet.</p>`}
+        </div>
+      </section>
+    </div>`;
 }
 
-function renderUi(): void {
-  renderTopicList();
-  renderStats();
-  renderInspector();
-  graph.applyView(view, search);
-  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === view);
-  });
+function render(): void {
+  renderTopics();
+  renderFocus();
 }
 
-function renderData(runLayout = true): void {
-  graph.setData(data, runLayout);
-  graph.setSelection(selection);
-  graphReady = true;
-  renderUi();
-}
-
-async function persist(messageText: string): Promise<void> {
+async function persist(text: string): Promise<void> {
   try {
     await saveGraph(data);
-    setMessage(messageText);
-    renderData(true);
+    setMessage(text);
+    render();
   } catch (error) {
     setMessage(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -356,66 +262,76 @@ function openEditTopic(id: string): void {
   topicDialog.showModal();
 }
 
-function openRelationshipDialog(topicId: string): void {
-  const others = data.topics.filter((topic) => topic.id !== topicId).sort((a, b) => a.name.localeCompare(b.name));
+function openRelationship(id: string, direction: "supports" | "supported-by"): void {
+  const topic = topicById(data, id);
+  if (!topic) return;
+  const others = data.topics.filter((candidate) => candidate.id !== id).sort((a, b) => a.name.localeCompare(b.name));
   if (!others.length) {
     setMessage("Add another topic first.");
     return;
   }
 
-  relationshipTopicId.value = topicId;
-  relationshipDirection.value = "supports";
+  relationshipTopicId.value = id;
+  relationshipDirection.value = direction;
   relationshipKindInput.value = "helpful";
-  relationshipOther.innerHTML = others.map((topic) =>
-    `<option value="${escapeHtml(topic.id)}">${escapeHtml(topic.name)}</option>`
+  relationshipTitle.textContent = direction === "supports"
+    ? `What does ${topic.name} support?`
+    : `What supports ${topic.name}?`;
+  relationshipOther.innerHTML = others.map((candidate) =>
+    `<option value="${escapeHtml(candidate.id)}">${escapeHtml(candidate.name)}</option>`
   ).join("");
   relationshipDialog.showModal();
 }
 
 topicForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const id = topicIdInput.value;
+  const existingId = topicIdInput.value;
   const name = topicNameInput.value.trim();
   const status = topicStatusInput.value as TopicStatus;
   const url = topicUrlInput.value.trim();
   if (!name) return;
 
-  if (data.topics.some((topic) => topic.id !== id && topic.name.toLowerCase() === name.toLowerCase())) {
+  const duplicate = data.topics.some(
+    (topic) => topic.id !== existingId && topic.name.toLowerCase() === name.toLowerCase(),
+  );
+  if (duplicate) {
     setMessage("A topic with that name already exists.");
     return;
   }
 
-  if (id) {
-    const topic = topicById(data, id);
+  if (existingId) {
+    const topic = topicById(data, existingId);
     if (!topic) return;
     topic.name = name;
     topic.status = status;
     topic.url = url;
-    selection = { type: "topic", id };
+    selectedTopicId = topic.id;
   } else {
     const topic = { id: uniqueTopicId(data, name), name, status, url };
     data.topics.push(topic);
-    selection = { type: "topic", id: topic.id };
+    selectedTopicId = topic.id;
   }
 
   topicDialog.close();
-  await persist(id ? `Updated “${name}”.` : `Added “${name}”.`);
+  await persist(existingId ? `Updated “${name}”.` : `Added “${name}”.`);
 });
 
 relationshipForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const selectedTopic = relationshipTopicId.value;
-  const otherTopic = relationshipOther.value;
+  const selected = relationshipTopicId.value;
+  const other = relationshipOther.value;
+  const direction = relationshipDirection.value;
   const kind = relationshipKindInput.value as RelationshipKind;
-  const source = relationshipDirection.value === "supports" ? selectedTopic : otherTopic;
-  const target = relationshipDirection.value === "supports" ? otherTopic : selectedTopic;
+  const source = direction === "supports" ? selected : other;
+  const target = direction === "supports" ? other : selected;
   const id = relationshipId(source, target);
 
-  const existing = data.relationships.find((r) => r.source === source && r.target === target);
+  const existing = data.relationships.find(
+    (relationship) => relationship.source === source && relationship.target === target,
+  );
   if (existing) existing.kind = kind;
   else data.relationships.push({ id, source, target, kind });
 
-  selection = { type: "relationship", id };
   relationshipDialog.close();
   await persist(existing ? "Relationship updated." : "Relationship added.");
 });
@@ -424,70 +340,54 @@ document.addEventListener("click", async (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
   if (!button) return;
 
-  if (button.id === "add-topic") openNewTopic();
-  if (button.id === "fit-graph") graph.fit();
-  if (button.id === "zoom-in") graph.zoomIn();
-  if (button.id === "zoom-out") graph.zoomOut();
-
-  if (button.dataset.closeDialog) byId<HTMLDialogElement>(button.dataset.closeDialog).close();
-
-  if (button.dataset.view) {
-    view = button.dataset.view as ViewMode;
-    renderUi();
+  if (button.id === "add-topic" || button.id === "welcome-add") openNewTopic();
+  if (button.dataset.close) byId<HTMLDialogElement>(button.dataset.close).close();
+  if (button.dataset.topic) {
+    selectedTopicId = button.dataset.topic;
+    render();
   }
-
-  if (button.dataset.selectTopic) {
-    selection = { type: "topic", id: button.dataset.selectTopic };
-    inspector.classList.add("open");
-    graph.setSelection(selection);
-    renderUi();
-  }
-
   if (button.dataset.editTopic) openEditTopic(button.dataset.editTopic);
-  if (button.dataset.addRelationship) openRelationshipDialog(button.dataset.addRelationship);
-
+  if (button.dataset.addLink && button.dataset.topicId) {
+    openRelationship(button.dataset.topicId, button.dataset.addLink as "supports" | "supported-by");
+  }
+  if (button.dataset.removeLink) {
+    data.relationships = data.relationships.filter(
+      (relationship) => relationship.id !== button.dataset.removeLink,
+    );
+    await persist("Relationship removed.");
+  }
   if (button.dataset.deleteTopic) {
     const topic = topicById(data, button.dataset.deleteTopic);
-    if (!topic || !confirm(`Delete “${topic.name}” and all its relationships?`)) return;
+    if (!topic || !confirm(`Delete “${topic.name}” and its relationships?`)) return;
     data.topics = data.topics.filter((candidate) => candidate.id !== topic.id);
-    data.relationships = data.relationships.filter((r) => r.source !== topic.id && r.target !== topic.id);
-    selection = null;
+    data.relationships = data.relationships.filter(
+      (relationship) => relationship.source !== topic.id && relationship.target !== topic.id,
+    );
+    selectedTopicId = data.topics[0]?.id ?? null;
     await persist(`Deleted “${topic.name}”.`);
   }
-
-  if (button.dataset.deleteRelationship) {
-    data.relationships = data.relationships.filter((r) => r.id !== button.dataset.deleteRelationship);
-    selection = null;
-    await persist("Relationship deleted.");
-  }
-
-  if (button.id === "reset-sample") {
-    if (!confirm("Replace the database contents with the sample graph?")) return;
+  if (button.id === "load-sample") {
+    if (!confirm("Replace the current graph with the sample data?")) return;
     data = sampleGraph();
-    selection = null;
-    await persist("Sample graph loaded.");
-    requestAnimationFrame(() => graph.fit());
+    selectedTopicId = data.topics[0]?.id ?? null;
+    await persist("Sample loaded.");
   }
-
-  if (button.dataset.closeInspector !== undefined) inspector.classList.remove("open");
 });
 
 searchInput.addEventListener("input", () => {
   search = searchInput.value;
-  renderUi();
+  renderTopics();
 });
 
 async function start(): Promise<void> {
   try {
     data = await loadGraph();
-    setMessage("Connected to FastAPI.");
+    selectedTopicId = data.topics[0]?.id ?? null;
+    setMessage("Connected.");
   } catch (error) {
     setMessage(`API unavailable: ${error instanceof Error ? error.message : String(error)}`);
-    data = { topics: [], relationships: [] };
   }
-
-  renderData(true);
-  requestAnimationFrame(() => graph.fit());
+  render();
 }
 
 void start();
