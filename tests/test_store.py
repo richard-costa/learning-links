@@ -1,19 +1,21 @@
-import tempfile
+import os
 import unittest
-from pathlib import Path
 
 from learning_links.store import DuplicateTopic, InvalidRelationship, Store
 from learning_links.visualize import to_dot
 
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
+
+@unittest.skipUnless(TEST_DATABASE_URL, "TEST_DATABASE_URL is not set")
 class StoreTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.tmp.name) / "test.db")
+        self.store = Store(TEST_DATABASE_URL)
+        self.store.reset()
 
     def tearDown(self):
+        self.store.reset()
         self.store.close()
-        self.tmp.cleanup()
 
     def test_case_insensitive_topics(self):
         self.store.add_topic("Formal Grammar", status="later")
@@ -27,10 +29,10 @@ class StoreTests(unittest.TestCase):
         self.store.link("Parsing", "Formal Grammar", "helpful")
         self.store.link("Compilers", "Formal Grammar", "prerequisite")
 
-        supported = [t.name for t, _ in self.store.supports("Formal Grammar")]
+        supported = [topic.name for topic, _ in self.store.supports("Formal Grammar")]
         self.assertCountEqual(supported, ["Compilers", "Parsing"])
 
-        scores = {t.name: n for t, n in self.store.importance()}
+        scores = {topic.name: count for topic, count in self.store.importance()}
         self.assertEqual(scores["Formal Grammar"], 2)
 
     def test_relationship_update_and_self_link(self):
