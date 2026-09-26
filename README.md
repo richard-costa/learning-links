@@ -119,12 +119,12 @@ once after the volume reset:
 docker compose exec -T db createdb -U learning_links learning_links_test
 ```
 
-## Share with friends
+## Share publicly
 
 For a public HTTPS URL without buying a domain or opening router ports, deploy
 the Docker app and publish it with Tailscale Funnel. Keep
 `LEARNING_LINKS_DISABLE_AUTH` empty or set it to `0`, then follow the complete
-guide in [docs/tailscale-funnel.md](docs/tailscale-funnel.md). Each friend gets
+guide in [docs/tailscale-funnel.md](docs/tailscale-funnel.md). Each user gets
 their own Learning Links email/password; they do not need a Tailscale account.
 
 ## CLI
@@ -207,7 +207,7 @@ is set. Keep authentication on when sharing the app.
 Add another user from a local Python installation:
 
 ```bash
-learning-links user-add friend@example.com
+learning-links user-add user@example.com
 ```
 
 The command prompts for the password without echoing it.
@@ -216,9 +216,9 @@ Manage users:
 
 ```bash
 learning-links user-list
-learning-links user-disable friend@example.com
-learning-links user-enable friend@example.com
-learning-links user-password friend@example.com
+learning-links user-disable user@example.com
+learning-links user-enable user@example.com
+learning-links user-password user@example.com
 ```
 
 Basic authentication must not be exposed over plain public HTTP. Use it only
@@ -325,13 +325,13 @@ The VM is useful as a security boundary: the application stack can live there in
 
 The recommended public path does not require router port forwarding. Tailscale
 Funnel provides a free `.ts.net` URL through an outbound connection; Cloudflare
-Tunnel is an alternative when you own a custom domain. Friends only see a normal
+Tunnel is an alternative when you own a custom domain. Users only see a normal
 HTTPS application URL.
 
 ### Tailscale Funnel (no domain)
 
 See [docs/tailscale-funnel.md](docs/tailscale-funnel.md) for the complete setup.
-It is the simplest option for sharing with friends without buying a domain.
+It is the simplest option for public sharing without buying a domain.
 
 ### Optional Cloudflare Tunnel
 
@@ -355,7 +355,7 @@ Then start the public profile:
 docker compose --profile public up -d
 ```
 
-Friends visit the HTTPS hostname in a normal browser. They do not need Tailscale, a VPN, or any client software. FastAPI then asks for one of the accounts you created with `learning-links user-add`.
+Users visit the HTTPS hostname in a normal browser. They do not need Tailscale, a VPN, or any client software. FastAPI then asks for one of the accounts you created with `learning-links user-add`.
 
 Keep `.env` private. The database password and Cloudflare tunnel token must never be committed.
 

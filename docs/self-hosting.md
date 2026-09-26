@@ -3,7 +3,7 @@
 Recommended no-domain deployment:
 
 ```text
-friends' browsers
+users' browsers
        |
        | HTTPS
        v
@@ -69,13 +69,13 @@ Create the first account:
 docker compose run --rm app learning-links user-add you@example.com
 ```
 
-Add friends the same way.
+Add users the same way.
 
 ## Public access
 
 ### Tailscale Funnel (no domain)
 
-Follow [tailscale-funnel.md](tailscale-funnel.md). Friends use the generated
+Follow [tailscale-funnel.md](tailscale-funnel.md). Users use the generated
 public `https://...ts.net` URL in a normal browser and authenticate with the app
 account you create for them.
 
@@ -99,14 +99,14 @@ Then:
 docker compose --profile public up -d
 ```
 
-Friends only need the HTTPS URL and the account/password you created for them.
+Users only need the HTTPS URL and the account/password you created for them.
 
 Do not expose PostgreSQL publicly. Do not expose port 8000 publicly when the tunnel is being used.
 
 ## Disable access
 
 ```bash
-docker compose run --rm app learning-links user-disable friend@example.com
+docker compose run --rm app learning-links user-disable user@example.com
 ```
 
 Re-enable later with `user-enable`.

@@ -1,11 +1,11 @@
 # Public Sharing With Tailscale Funnel
 
 This guide publishes Learning Links at a public `https://...ts.net` URL without
-buying a domain, opening router ports, or requiring friends to install
+buying a domain, opening router ports, or requiring users to install
 Tailscale. It works on a Linux VM or a machine that stays online.
 
 ```text
-friends' browsers
+users' browsers
        |
        | HTTPS
        v
@@ -94,19 +94,19 @@ tailscale funnel status
 a normal browser, then sign in with the Learning Links email/password created
 earlier. That browser login is separate from the Tailscale account.
 
-## Add and manage friends
+## Add and manage users
 
-Create one app account per friend:
+Create one app account per user:
 
 ```bash
-docker compose exec app learning-links user-add friend@example.com
+docker compose exec app learning-links user-add user@example.com
 ```
 
 Send the public URL, account email, and password through a secure channel. To
 disable access later:
 
 ```bash
-docker compose exec app learning-links user-disable friend@example.com
+docker compose exec app learning-links user-disable user@example.com
 ```
 
 ## MagicDNS warning on NetworkManager systems
@@ -151,6 +151,16 @@ Stop the containers while preserving database data:
 
 ```bash
 docker compose down
+```
+
+For a maximum shutdown, stop public sharing, stop the containers, and disconnect
+this host from the tailnet. Tailscale remains installed and can be reconnected
+later with `sudo tailscale up`:
+
+```bash
+tailscale funnel --https=443 off
+docker compose down
+sudo tailscale down
 ```
 
 Back up the application database:
