@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import sys
 import webbrowser
 from pathlib import Path
 
+from .auth import hash_password
 from .store import Store, StoreError, VALID_KINDS, VALID_STATUSES
 from .visualize import VisualizationError, render_graph, to_dot
 
-DEFAULT_DB = os.environ.get("LEARNING_LINKS_DB", "learning-links.db")
+DEFAULT_DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="learning-links")
-    p.add_argument("--db", default=DEFAULT_DB)
-    sub = p.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(prog="learning-links")
+    parser.add_argument("--database-url", default=DEFAULT_DATABASE_URL)
+    sub = parser.add_subparsers(dest="command", required=True)
 
     add = sub.add_parser("add")
     add.add_argument("name")
@@ -60,7 +62,38 @@ def build_parser():
     graph.add_argument("--format", choices=("svg", "png"))
     graph.add_argument("--open", action="store_true", dest="open_graph")
 
-    return p
+    user_add = sub.add_parser("user-add", help="create an allowed web user")
+    user_add.add_argument("email")
+
+    sub.add_parser("user-list", help="list allowed web users")
+
+    user_disable = sub.add_parser("user-disable", help="disable a web user")
+    user_disable.add_argument("email")
+
+    user_enable = sub.add_parser("user-enable", help="enable a web user")
+    user_enable.add_argument("email")
+
+    user_password = sub.add_parser("user-password", help="change a web user's password")
+    user_password.add_argument("email")
+
+    return parser
+
+
+def require_database_url(args) -> str:
+    if not args.database_url:
+        raise StoreError("DATABASE_URL is required")
+    return args.database_url
+
+
+def prompt_password() -> str:
+    first = getpass.getpass("Password: ")
+    second = getpass.getpass("Repeat password: ")
+    if first != second:
+        raise StoreError("passwords do not match")
+    try:
+        return hash_password(first)
+    except ValueError as exc:
+        raise StoreError(str(exc)) from exc
 
 
 def _print_overview(store: Store):
@@ -101,15 +134,17 @@ def _graph_options(args):
 
 
 def run(args):
-    with Store(args.db) as store:
+    database_url = require_database_url(args)
+
+    with Store(database_url) as store:
         if args.command == "add":
-            t = store.add_topic(args.name, args.url, args.status)
-            print(f"{t.name} [{t.status}]")
+            topic = store.add_topic(args.name, args.url, args.status)
+            print(f"{topic.name} [{topic.status}]")
             return 0
 
         if args.command == "list":
-            for t in store.list_topics():
-                print(f"{t.name} [{t.status}]")
+            for topic in store.list_topics():
+                print(f"{topic.name} [{topic.status}]")
             return 0
 
         if args.command == "overview":
@@ -126,14 +161,14 @@ def run(args):
             return 0
 
         if args.command == "edit":
-            t = store.edit_topic(
+            topic = store.edit_topic(
                 args.name,
                 new_name=args.new_name,
                 url=args.url or None,
                 status=args.status,
                 set_url=args.url is not None,
             )
-            print(f"{t.name} [{t.status}]")
+            print(f"{topic.name} [{topic.status}]")
             return 0
 
         if args.command == "remove":
@@ -142,20 +177,27 @@ def run(args):
             return 0
 
         if args.command == "link":
-            r = store.link(args.topic, args.supporting_topic, args.kind)
-            print(f"{r.supporting_topic.name} -[{r.kind}]-> {r.topic.name}")
+            relationship = store.link(args.topic, args.supporting_topic, args.kind)
+            print(
+                f"{relationship.supporting_topic.name} "
+                f"-[{relationship.kind}]-> {relationship.topic.name}"
+            )
             return 0
 
         if args.command == "unlink":
-            print("removed" if store.unlink(args.topic, args.supporting_topic) else "relationship did not exist")
+            print(
+                "removed"
+                if store.unlink(args.topic, args.supporting_topic)
+                else "relationship did not exist"
+            )
             return 0
 
         if args.command == "show":
-            t = store.get_topic(args.name)
+            topic = store.get_topic(args.name)
             supported_by = store.supported_by(args.name)
             supports = store.supports(args.name)
 
-            print(f"{t.name} [{t.status}]")
+            print(f"{topic.name} [{topic.status}]")
             print("\nSupported by:")
             if supported_by:
                 for other, kind in supported_by:
@@ -172,8 +214,8 @@ def run(args):
             return 0
 
         if args.command == "important":
-            for t, n in store.importance():
-                print(f"{n:>3}  {t.name}")
+            for topic, count in store.importance():
+                print(f"{count:>3}  {topic.name}")
             return 0
 
         if args.command == "reset":
@@ -201,6 +243,32 @@ def run(args):
             print(rendered)
             if args.open_graph:
                 webbrowser.open(rendered.resolve().as_uri())
+            return 0
+
+        if args.command == "user-add":
+            user = store.add_user(args.email, prompt_password())
+            print(f"added user: {user.email}")
+            return 0
+
+        if args.command == "user-list":
+            for user in store.list_users():
+                status = "active" if user.active else "disabled"
+                print(f"{user.email} [{status}]")
+            return 0
+
+        if args.command == "user-disable":
+            user = store.set_user_active(args.email, False)
+            print(f"disabled: {user.email}")
+            return 0
+
+        if args.command == "user-enable":
+            user = store.set_user_active(args.email, True)
+            print(f"enabled: {user.email}")
+            return 0
+
+        if args.command == "user-password":
+            user = store.set_user_password(args.email, prompt_password())
+            print(f"password updated: {user.email}")
             return 0
 
     return 0
