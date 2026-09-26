@@ -12,6 +12,10 @@ export interface SessionInfo {
   csrf_token: string;
 }
 
+export interface PublicConfig {
+  signup_enabled: boolean;
+}
+
 const demoMode = window.location.pathname === "/demo";
 let demoWorkspace: WorkspaceData | null = null;
 let sessionInfo: SessionInfo | null = null;
@@ -32,6 +36,11 @@ async function request(path: string, options?: RequestInit): Promise<Response> {
     throw new ApiError(response.status, detail);
   }
   return response;
+}
+
+export async function getPublicConfig(): Promise<PublicConfig> {
+  const response = await request("/api/public-config");
+  return response.json() as Promise<PublicConfig>;
 }
 
 export async function getSession(force = false): Promise<SessionInfo> {
