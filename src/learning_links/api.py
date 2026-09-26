@@ -12,10 +12,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .auth import verify_password
+from .config import load_environment
 from .store import Store, StoreError, UserNotFound
 
 TopicStatus = Literal["planned", "learning", "learned", "later"]
 RelationshipKind = Literal["prerequisite", "helpful"]
+
+load_environment()
 
 
 class TopicPayload(BaseModel):

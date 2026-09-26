@@ -42,8 +42,16 @@ python -m pip install -e .
 Set the database connection:
 
 ```fish
-set -x DATABASE_URL postgresql://localhost/learning_links
+cat > .env <<'EOF'
+DATABASE_URL=postgresql://localhost/learning_links
+LEARNING_LINKS_DISABLE_AUTH=1
+EOF
 ```
+
+The repository-root `.env` is loaded by `learning-links-api` and `learning-links`.
+`LEARNING_LINKS_DISABLE_AUTH=1` is for local testing only; remove it before
+sharing the application. An exported environment variable takes precedence over
+the same setting in `.env`.
 
 Run FastAPI:
 
@@ -107,13 +115,17 @@ docker compose exec app learning-links user-add you@example.com
 
 Enter the email and password you just created in your browser's sign-in prompt. If you run FastAPI outside Docker, use `learning-links user-add you@example.com` with `DATABASE_URL` set instead.
 
-To skip the prompt for a local-only FastAPI process, **stop the API and restart it** with the development flag. This one-command form works in fish and Bash:
+To skip the prompt for a local-only FastAPI process, set the development flag in
+the repository-root `.env`, then stop and restart the API:
 
 ```bash
-env LEARNING_LINKS_DISABLE_AUTH=1 learning-links-api
+LEARNING_LINKS_DISABLE_AUTH=1
 ```
 
-The root `.env` is not loaded by `learning-links-api`. In fish, `set LEARNING_LINKS_DISABLE_AUTH 1` also does not export the variable; use `set -gx LEARNING_LINKS_DISABLE_AUTH 1` if you want it to persist in that shell. No rebuild is needed. PostgreSQL and an exported `DATABASE_URL` are still required. Docker Compose reads `.env` for its own configuration, but the app service does not forward this development flag. Keep authentication on when sharing the app.
+`DATABASE_URL` is still required, because bypassing authentication does not
+bypass PostgreSQL. Docker Compose reads `.env` for its own configuration, but
+the app service does not forward this development flag. Keep authentication on
+when sharing the app.
 
 Add another user from a local Python installation:
 

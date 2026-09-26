@@ -8,8 +8,11 @@ import webbrowser
 from pathlib import Path
 
 from .auth import hash_password
-from .store import Store, StoreError, VALID_KINDS, VALID_STATUSES
+from .config import load_environment
+from .store import VALID_KINDS, VALID_STATUSES, Store, StoreError
 from .visualize import VisualizationError, render_graph, to_dot
+
+load_environment()
 
 DEFAULT_DATABASE_URL = os.environ.get("DATABASE_URL")
 
