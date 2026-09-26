@@ -7,7 +7,7 @@ from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
 VALID_STATUSES = ("planned", "learning", "learned", "later")
-VALID_KINDS = ("prerequisite", "helpful", "related")
+VALID_REASONS = ("need", "revisit", "curious")
 
 
 @dataclass(frozen=True)
@@ -19,21 +19,22 @@ class Topic:
 
 
 @dataclass(frozen=True)
-class Relationship:
+class Encounter:
+    context: Topic
     topic: Topic
-    supporting_topic: Topic
-    kind: str
+    reason: str
+    note: str
 
 
 @dataclass(frozen=True)
 class TopicSummary:
     topic: Topic
-    supported_by_count: int
-    supports_count: int
+    came_up_in_count: int
+    flagged_count: int
 
     @property
     def isolated(self) -> bool:
-        return self.supported_by_count == 0 and self.supports_count == 0
+        return self.came_up_in_count == 0 and self.flagged_count == 0
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ class DuplicateTopic(StoreError):
     pass
 
 
-class InvalidRelationship(StoreError):
+class InvalidEncounter(StoreError):
     pass
 
 
@@ -91,38 +92,19 @@ class Store:
         )
         self.conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS relationships (
+            CREATE TABLE IF NOT EXISTS encounters (
+                context_topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
                 topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-                supporting_topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-                kind TEXT NOT NULL CONSTRAINT relationships_kind_check
-                    CHECK(kind IN ('prerequisite','helpful','related')),
-                PRIMARY KEY(topic_id, supporting_topic_id),
-                CHECK(topic_id <> supporting_topic_id)
+                reason TEXT NOT NULL DEFAULT 'need'
+                    CONSTRAINT encounters_reason_check
+                    CHECK(reason IN ('need','revisit','curious')),
+                note TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY(context_topic_id, topic_id),
+                CHECK(context_topic_id <> topic_id)
             )
             """
         )
-        relationship_kind_check = self.conn.execute(
-            """
-            SELECT pg_get_constraintdef(oid) AS definition
-            FROM pg_constraint
-            WHERE conrelid = 'relationships'::regclass
-              AND conname = 'relationships_kind_check'
-            """
-        ).fetchone()
-        if (
-            relationship_kind_check
-            and "'related'" not in relationship_kind_check["definition"]
-        ):
-            self.conn.execute(
-                "ALTER TABLE relationships DROP CONSTRAINT relationships_kind_check"
-            )
-            self.conn.execute(
-                """
-                ALTER TABLE relationships
-                ADD CONSTRAINT relationships_kind_check
-                CHECK(kind IN ('prerequisite','helpful','related'))
-                """
-            )
+        self._migrate_relationships()
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -138,6 +120,31 @@ class Store:
             "CREATE UNIQUE INDEX IF NOT EXISTS users_email_ci_unique ON users (lower(email))"
         )
         self.conn.commit()
+
+    def _migrate_relationships(self) -> None:
+        legacy = self.conn.execute(
+            "SELECT to_regclass('relationships') AS table_name"
+        ).fetchone()
+        if not legacy or legacy["table_name"] is None:
+            return
+
+        self.conn.execute(
+            """
+            INSERT INTO encounters(context_topic_id, topic_id, reason, note)
+            SELECT
+                topic_id,
+                supporting_topic_id,
+                CASE kind
+                    WHEN 'prerequisite' THEN 'need'
+                    WHEN 'helpful' THEN 'revisit'
+                    ELSE 'curious'
+                END,
+                ''
+            FROM relationships
+            ON CONFLICT(context_topic_id, topic_id) DO NOTHING
+            """
+        )
+        self.conn.execute("DROP TABLE relationships")
 
     def close(self) -> None:
         self.conn.close()
@@ -218,71 +225,72 @@ class Store:
         self.conn.execute("DELETE FROM topics WHERE id=%s", (topic.id,))
         self.conn.commit()
 
-    def link(self, topic_name: str, supporting_name: str, kind: str) -> Relationship:
-        if kind not in VALID_KINDS:
-            raise InvalidRelationship(f"invalid relationship kind: {kind}")
+    def flag(self, context_name: str, topic_name: str, reason: str = "need", note: str = "") -> Encounter:
+        if reason not in VALID_REASONS:
+            raise InvalidEncounter(f"invalid encounter reason: {reason}")
 
+        context = self.get_topic(context_name)
         topic = self.get_topic(topic_name)
-        supporting = self.get_topic(supporting_name)
-        if topic.id == supporting.id:
-            raise InvalidRelationship("a topic cannot support itself")
+        if context.id == topic.id:
+            raise InvalidEncounter("a topic cannot be flagged from itself")
 
+        note = note.strip()
         self.conn.execute(
             """
-            INSERT INTO relationships(topic_id,supporting_topic_id,kind)
-            VALUES (%s,%s,%s)
-            ON CONFLICT(topic_id,supporting_topic_id)
-            DO UPDATE SET kind=excluded.kind
+            INSERT INTO encounters(context_topic_id,topic_id,reason,note)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT(context_topic_id,topic_id)
+            DO UPDATE SET reason=excluded.reason,note=excluded.note
             """,
-            (topic.id, supporting.id, kind),
+            (context.id, topic.id, reason, note),
         )
         self.conn.commit()
-        return Relationship(topic, supporting, kind)
+        return Encounter(context, topic, reason, note)
 
-    def unlink(self, topic_name: str, supporting_name: str) -> bool:
+    def unflag(self, context_name: str, topic_name: str) -> bool:
+        context = self.get_topic(context_name)
         topic = self.get_topic(topic_name)
-        supporting = self.get_topic(supporting_name)
         cursor = self.conn.execute(
-            "DELETE FROM relationships WHERE topic_id=%s AND supporting_topic_id=%s",
-            (topic.id, supporting.id),
+            "DELETE FROM encounters WHERE context_topic_id=%s AND topic_id=%s",
+            (context.id, topic.id),
         )
         self.conn.commit()
         return cursor.rowcount > 0
 
-    def supported_by(self, name: str):
+    def came_up_in(self, name: str) -> list[tuple[Topic, str, str]]:
         topic = self.get_topic(name)
         rows = self.conn.execute(
             """
-            SELECT t.id,t.name,t.url,t.status,r.kind
-            FROM relationships r
-            JOIN topics t ON t.id=r.supporting_topic_id
-            WHERE r.topic_id=%s
-            ORDER BY r.kind,lower(t.name)
+            SELECT t.id,t.name,t.url,t.status,e.reason,e.note
+            FROM encounters e
+            JOIN topics t ON t.id=e.context_topic_id
+            WHERE e.topic_id=%s
+            ORDER BY lower(t.name)
             """,
             (topic.id,),
         ).fetchall()
-        return [(self._topic(row), row["kind"]) for row in rows]
+        return [(self._topic(row), row["reason"], row["note"]) for row in rows]
 
-    def supports(self, name: str):
-        topic = self.get_topic(name)
+    def flagged_from(self, name: str) -> list[tuple[Topic, str, str]]:
+        context = self.get_topic(name)
         rows = self.conn.execute(
             """
-            SELECT t.id,t.name,t.url,t.status,r.kind
-            FROM relationships r
-            JOIN topics t ON t.id=r.topic_id
-            WHERE r.supporting_topic_id=%s
-            ORDER BY r.kind,lower(t.name)
+            SELECT t.id,t.name,t.url,t.status,e.reason,e.note
+            FROM encounters e
+            JOIN topics t ON t.id=e.topic_id
+            WHERE e.context_topic_id=%s
+            ORDER BY lower(t.name)
             """,
-            (topic.id,),
+            (context.id,),
         ).fetchall()
-        return [(self._topic(row), row["kind"]) for row in rows]
+        return [(self._topic(row), row["reason"], row["note"]) for row in rows]
 
-    def importance(self):
+    def recurring_topics(self) -> list[tuple[Topic, int]]:
         rows = self.conn.execute(
             """
-            SELECT t.id,t.name,t.url,t.status,COUNT(r.topic_id) AS n
+            SELECT t.id,t.name,t.url,t.status,COUNT(e.context_topic_id) AS n
             FROM topics t
-            LEFT JOIN relationships r ON r.supporting_topic_id=t.id
+            LEFT JOIN encounters e ON e.topic_id=t.id
             GROUP BY t.id
             ORDER BY n DESC,lower(t.name)
             """
@@ -294,8 +302,8 @@ class Store:
             """
             SELECT
                 t.id,t.name,t.url,t.status,
-                (SELECT COUNT(*) FROM relationships r WHERE r.topic_id=t.id) AS supported_by_count,
-                (SELECT COUNT(*) FROM relationships r WHERE r.supporting_topic_id=t.id) AS supports_count
+                (SELECT COUNT(*) FROM encounters e WHERE e.topic_id=t.id) AS came_up_in_count,
+                (SELECT COUNT(*) FROM encounters e WHERE e.context_topic_id=t.id) AS flagged_count
             FROM topics t
             ORDER BY lower(t.name)
             """
@@ -303,8 +311,8 @@ class Store:
         return [
             TopicSummary(
                 topic=self._topic(row),
-                supported_by_count=int(row["supported_by_count"]),
-                supports_count=int(row["supports_count"]),
+                came_up_in_count=int(row["came_up_in_count"]),
+                flagged_count=int(row["flagged_count"]),
             )
             for row in rows
         ]
@@ -314,10 +322,8 @@ class Store:
 
     def counts(self) -> tuple[int, int]:
         topics = int(self.conn.execute("SELECT COUNT(*) AS n FROM topics").fetchone()["n"])
-        relationships = int(
-            self.conn.execute("SELECT COUNT(*) AS n FROM relationships").fetchone()["n"]
-        )
-        return topics, relationships
+        encounters = int(self.conn.execute("SELECT COUNT(*) AS n FROM encounters").fetchone()["n"])
+        return topics, encounters
 
     def reset(self) -> tuple[int, int]:
         counts = self.counts()
@@ -325,23 +331,24 @@ class Store:
         self.conn.commit()
         return counts
 
-    def relationships(self) -> list[Relationship]:
+    def encounters(self) -> list[Encounter]:
         rows = self.conn.execute(
             """
-            SELECT r.kind,
-                   d.id AS d_id,d.name AS d_name,d.url AS d_url,d.status AS d_status,
-                   s.id AS s_id,s.name AS s_name,s.url AS s_url,s.status AS s_status
-            FROM relationships r
-            JOIN topics d ON d.id=r.topic_id
-            JOIN topics s ON s.id=r.supporting_topic_id
-            ORDER BY lower(s.name),lower(d.name)
+            SELECT e.reason,e.note,
+                   c.id AS c_id,c.name AS c_name,c.url AS c_url,c.status AS c_status,
+                   t.id AS t_id,t.name AS t_name,t.url AS t_url,t.status AS t_status
+            FROM encounters e
+            JOIN topics c ON c.id=e.context_topic_id
+            JOIN topics t ON t.id=e.topic_id
+            ORDER BY lower(c.name),lower(t.name)
             """
         ).fetchall()
         return [
-            Relationship(
-                Topic(row["d_id"], row["d_name"], row["d_url"], row["d_status"]),
-                Topic(row["s_id"], row["s_name"], row["s_url"], row["s_status"]),
-                row["kind"],
+            Encounter(
+                Topic(row["c_id"], row["c_name"], row["c_url"], row["c_status"]),
+                Topic(row["t_id"], row["t_name"], row["t_url"], row["t_status"]),
+                row["reason"],
+                row["note"],
             )
             for row in rows
         ]
