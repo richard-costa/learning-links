@@ -17,13 +17,15 @@ PostgreSQL
 
 The frontend is Vite + vanilla TypeScript + CSS. FastAPI owns the API, authentication, and database access. PostgreSQL is the single source of truth for both the web app and CLI.
 
-The frontend intentionally avoids an infinite canvas. It focuses on one topic at a time:
+The frontend offers a focused trail and a full map. Every arrow goes from a topic you can use to learn another topic:
 
 ```text
-Supported by  ->  [ focused topic ]  ->  Supports
+Helps you learn this  ->  [ focused topic ]  ->  This helps you learn
 ```
 
-Clicking a related topic makes it the new focus.
+For example, `Formal Grammar → Parsing` means Formal Grammar helps you learn Parsing. A **required first** connection is a prerequisite; **helpful context** is optional. The web interface uses these plain-language labels while the existing API and database values remain `prerequisite` and `helpful`.
+
+Select a related topic to follow the trail, or switch to **Map** to see all topics and connections. The map supports zoom and pan; selecting a node opens it in Focus.
 
 ## Local development
 
@@ -71,7 +73,7 @@ learning-links show "Formal Grammar"
 learning-links overview
 ```
 
-`link TOPIC SUPPORTING_TOPIC` means the second topic supports learning the first.
+`link TOPIC SUPPORTING_TOPIC` means the second topic helps you learn the first. For example, `link "Parsing" "Formal Grammar" --kind helpful` draws an arrow from Formal Grammar to Parsing.
 
 Main commands:
 

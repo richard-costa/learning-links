@@ -112,13 +112,13 @@ def _print_overview(store: Store):
     status_width = max(len("STATUS"), *(len(s.topic.status) for s in summaries))
 
     print()
-    print(f"{'TOPIC':<{name_width}}  {'STATUS':<{status_width}}  {'SUPPORTED BY':>12}  {'SUPPORTS':>8}")
+    print(f"{'TOPIC':<{name_width}}  {'STATUS':<{status_width}}  {'HELPS LEARN IT':>14}  {'HELPS LEARN':>11}")
     for summary in summaries:
         print(
             f"{summary.topic.name:<{name_width}}  "
             f"{summary.topic.status:<{status_width}}  "
-            f"{summary.supported_by_count:>12}  "
-            f"{summary.supports_count:>8}"
+            f"{summary.supported_by_count:>14}  "
+            f"{summary.supports_count:>11}"
         )
 
 
@@ -198,14 +198,14 @@ def run(args):
             supports = store.supports(args.name)
 
             print(f"{topic.name} [{topic.status}]")
-            print("\nSupported by:")
+            print("\nHelps you learn this:")
             if supported_by:
                 for other, kind in supported_by:
                     print(f"  {other.name} ({kind})")
             else:
                 print("  —")
 
-            print("\nSupports:")
+            print("\nThis helps you learn:")
             if supports:
                 for other, kind in supports:
                     print(f"  {other.name} ({kind})")
