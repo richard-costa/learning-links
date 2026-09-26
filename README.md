@@ -36,7 +36,7 @@ An encounter is unique for a `(context, topic)` pair. Flagging the same pair aga
 The browser has four views:
 
 - **Topics** — searchable topic library with encounter counts.
-- **Topic** — the primary workspace: **Came up in** and **Flagged while studying this**.
+- **Topic** — the primary workspace: **Came up in** and **Led me to**.
 - **Discover** — recurring topics ranked by number of distinct contexts, plus a context matrix.
 - **Map** — a local ego diagram containing only the selected topic and its immediate encounters.
 
@@ -111,15 +111,10 @@ Delete all local PostgreSQL data, including users and the test database:
 docker compose down --volumes
 ```
 
-Recreate the local database with the current encounter schema:
+Recreate the disposable test database when needed:
 
 ```fish
-docker compose up -d --build --wait db
-```
-
-If you also run the database test suite, recreate its disposable database once:
-
-```fish
+docker compose up -d --wait db
 docker compose exec -T db createdb -U learning_links learning_links_test
 ```
 
@@ -175,7 +170,7 @@ Running multiple subjects intentionally creates recurring concepts such as Diffe
 
 ## Fresh database after the encounter-model change
 
-This project does not carry legacy schema migrations. If you still have a local database from the old relationship model, recreate the local PostgreSQL volume once using the commands under **Local cleanup** above.
+This project does not carry legacy schema migrations. If you still have a local database from the old relationship model, recreate the local PostgreSQL volume once before running this version. See **Local cleanup** above.
 
 ## Web authentication
 
