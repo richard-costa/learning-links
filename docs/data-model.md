@@ -39,7 +39,7 @@ CREATE TABLE encounters (
 A topic can therefore be queried in two directions without inventing inverse prose:
 
 - `encounters.topic_id = topic.id` → **Came up in**;
-- `encounters.context_topic_id = topic.id` → **Flagged while studying this**.
+- `encounters.context_topic_id = topic.id` → **Led me to**.
 
 Discovery is primarily `COUNT(encounters.context_topic_id) GROUP BY encounters.topic_id`: how many distinct contexts caused a topic to resurface.
 
