@@ -1,10 +1,14 @@
 import type { WorkspaceData } from "./model";
+import { sampleWorkspace } from "./storage";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
   }
 }
+
+const demoMode = window.location.pathname === "/demo";
+let demoWorkspace: WorkspaceData | null = null;
 
 async function request(path: string, options?: RequestInit): Promise<Response> {
   const response = await fetch(path, options);
@@ -22,11 +26,21 @@ async function request(path: string, options?: RequestInit): Promise<Response> {
 }
 
 export async function loadWorkspace(): Promise<WorkspaceData> {
+  if (demoMode) {
+    demoWorkspace ??= sampleWorkspace();
+    return structuredClone(demoWorkspace);
+  }
+
   const response = await request("/api/workspace");
   return response.json() as Promise<WorkspaceData>;
 }
 
 export async function saveWorkspace(data: WorkspaceData): Promise<WorkspaceData> {
+  if (demoMode) {
+    demoWorkspace = structuredClone(data);
+    return structuredClone(demoWorkspace);
+  }
+
   const response = await request("/api/workspace", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
