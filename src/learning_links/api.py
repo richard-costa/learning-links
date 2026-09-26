@@ -61,12 +61,16 @@ def decode_basic_auth(header: str) -> tuple[str, str] | None:
         return None
     if ":" not in raw:
         return None
-    return tuple(raw.split(":", 1))  # type: ignore[return-value]
+    email, password = raw.split(":", 1)
+    return email, password
 
 
 @app.middleware("http")
 async def require_auth(request: Request, call_next):
-    if request.url.path == "/api/health":
+    if (
+        request.url.path == "/api/health"
+        or os.environ.get("LEARNING_LINKS_DISABLE_AUTH") == "1"
+    ):
         return await call_next(request)
 
     credentials = decode_basic_auth(request.headers.get("authorization", ""))
