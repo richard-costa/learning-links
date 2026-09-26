@@ -70,7 +70,8 @@ def decode_basic_auth(header: str) -> tuple[str, str] | None:
 
 
 def is_public_path(path: str) -> bool:
-    return path in {"/", "/demo", "/api/health"} or path.startswith("/assets/")
+    normalized = path.rstrip("/") or "/"
+    return normalized in {"/", "/demo", "/api/health"} or normalized.startswith("/assets/")
 
 
 @app.middleware("http")
