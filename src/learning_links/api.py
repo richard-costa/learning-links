@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from .auth import verify_password
 from .config import load_environment
-from .store import Store, StoreError, UserNotFound
+from .store import Store, StoreError, User, UserNotFound
 
 TopicStatus = Literal["planned", "learning", "learned", "later"]
 EncounterReason = Literal["need", "revisit", "curious"]
@@ -74,9 +74,39 @@ def is_public_path(path: str) -> bool:
     return normalized in {"/", "/demo", "/api/health"} or normalized.startswith("/assets/")
 
 
+def development_user(store: Store) -> User:
+    email = os.environ.get("LEARNING_LINKS_DEV_USER")
+    if email:
+        user = store.get_user(email)
+        if not user.active:
+            raise StoreError("LEARNING_LINKS_DEV_USER is disabled")
+        return user
+    users = [user for user in store.list_users() if user.active]
+    if len(users) == 1:
+        return users[0]
+    if not users:
+        raise StoreError("disabled-auth mode needs an existing active user")
+    raise StoreError("disabled-auth mode is ambiguous; set LEARNING_LINKS_DEV_USER")
+
+
+def request_user(request: Request) -> User:
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return user
+
+
 @app.middleware("http")
 async def require_auth(request: Request, call_next):
-    if is_public_path(request.url.path) or os.environ.get("LEARNING_LINKS_DISABLE_AUTH") == "1":
+    if is_public_path(request.url.path):
+        return await call_next(request)
+
+    if os.environ.get("LEARNING_LINKS_DISABLE_AUTH") == "1":
+        try:
+            with Store(database_url()) as store:
+                request.state.user = development_user(store)
+        except (StoreError, UserNotFound) as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
         return await call_next(request)
 
     credentials = decode_basic_auth(request.headers.get("authorization", ""))
@@ -173,15 +203,17 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/workspace", response_model=WorkspacePayload)
-def get_workspace() -> WorkspacePayload:
-    with Store(database_url()) as store:
+def get_workspace(request: Request) -> WorkspacePayload:
+    user = request_user(request)
+    with Store(database_url(), user_id=user.id) as store:
         return workspace_from_store(store)
 
 
 @app.put("/api/workspace", response_model=WorkspacePayload)
-def put_workspace(workspace: WorkspacePayload) -> WorkspacePayload:
+def put_workspace(request: Request, workspace: WorkspacePayload) -> WorkspacePayload:
+    user = request_user(request)
     try:
-        with Store(database_url()) as store:
+        with Store(database_url(), user_id=user.id) as store:
             replace_workspace(store, workspace)
             return workspace_from_store(store)
     except (StoreError, ValueError) as exc:
