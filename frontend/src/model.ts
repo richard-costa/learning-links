@@ -27,7 +27,7 @@ export function topicById(data: GraphData, id: string): Topic | undefined {
   return data.topics.find((topic) => topic.id === id);
 }
 
-export function supportCounts(
+export function connectionCounts(
   data: GraphData,
 ): Map<string, { incoming: number; outgoing: number }> {
   const counts = new Map(
