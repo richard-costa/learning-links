@@ -107,6 +107,26 @@ learning-links graph [-o FILE] [--format svg|png] [--open]
 learning-links dot [-o FILE]
 ```
 
+### Sample topic commands
+
+Load a connected set of sample topics for one subject into `DATABASE_URL`:
+
+```fish
+uv run python scripts/generate_examples.py physics
+uv run python scripts/generate_examples.py math
+uv run python scripts/generate_examples.py computer-science
+uv run python scripts/generate_examples.py linguistics
+uv run python scripts/generate_examples.py astronomy
+```
+
+Each run adds only missing topics and creates or updates that subject's
+relationships; it does not reset the database or load every subject. Preview the
+commands without modifying the database with `--dry-run`:
+
+```fish
+uv run python scripts/generate_examples.py physics --dry-run
+```
+
 ## Web authentication
 
 The web app uses HTTP Basic authentication backed by the PostgreSQL `users` table.
