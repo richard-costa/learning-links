@@ -1,6 +1,7 @@
 import os
 
 import pytest
+import psycopg
 
 from learning_links.store import DuplicateTopic, InvalidRelationship, Store
 from learning_links.visualize import to_dot
@@ -41,10 +42,31 @@ class TestStore:
         self.store.add_topic("Parsing")
         self.store.add_topic("Formal Grammar")
         self.store.link("Parsing", "Formal Grammar", "helpful")
-        self.store.link("Parsing", "Formal Grammar", "prerequisite")
-        assert self.store.supported_by("Parsing")[0][1] == "prerequisite"
+        self.store.link("Parsing", "Formal Grammar", "related")
+        assert self.store.supported_by("Parsing")[0][1] == "related"
         with pytest.raises(InvalidRelationship):
             self.store.link("Parsing", "Parsing", "helpful")
+
+    def test_existing_relationship_constraint_is_upgraded(self):
+        self.store.close()
+        with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as connection:
+            connection.execute(
+                "ALTER TABLE relationships DROP CONSTRAINT relationships_kind_check"
+            )
+            connection.execute(
+                """
+                ALTER TABLE relationships
+                ADD CONSTRAINT relationships_kind_check
+                CHECK(kind IN ('prerequisite','helpful'))
+                """
+            )
+
+        self.store = Store(TEST_DATABASE_URL)
+        self.store.add_topic("Parsing")
+        self.store.add_topic("Formal Grammar")
+        self.store.link("Parsing", "Formal Grammar", "related")
+
+        assert self.store.supported_by("Parsing")[0][1] == "related"
 
     def test_overview_and_isolated_topics(self):
         self.store.add_topic("Parsing")

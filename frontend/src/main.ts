@@ -21,7 +21,21 @@ let selectedTopicId: string | null = null;
 let search = "";
 let view: "atlas" | "focus" = "atlas";
 let graphBox = { x: 0, y: 0, width: 1000, height: 720 };
-let dragging: { x: number; y: number; moved: boolean } | null = null;
+type Point = { x: number; y: number };
+type DragState =
+  | { kind: "canvas"; x: number; y: number; moved: boolean }
+  | {
+      kind: "node";
+      id: string;
+      x: number;
+      y: number;
+      origin: Point;
+      moved: boolean;
+    };
+const NODE_POSITION_STORAGE_KEY = "learning-links.node-positions.v1";
+let dragging: DragState | null = null;
+let renderedPoints = new Map<string, Point>();
+let nodePositions = loadNodePositions();
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root not found");
@@ -37,7 +51,7 @@ app.innerHTML = `
         <div class="side-footer"><button id="load-sample" class="subtle-link" type="button">Load example map</button><span id="topic-count"></span></div>
       </aside>
       <main class="main-panel">
-        <div class="tabbar"><div class="tabs"><button id="atlas-tab" type="button">All topics</button><button id="focus-tab" type="button">Local graph</button></div><div class="graph-controls"><button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">＋</button><button type="button" data-zoom="reset" title="Reset view" aria-label="Reset view">⤢</button></div></div>
+        <div class="tabbar"><div class="tabs"><button id="atlas-tab" type="button">All topics</button><button id="focus-tab" type="button">Local graph</button></div><div class="graph-controls"><button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">＋</button><button type="button" data-zoom="reset" title="Reset view and arrangement" aria-label="Reset view and arrangement">⤢</button></div></div>
         <div id="graph-area" class="graph-area"><section id="atlas-view" class="graph-view" aria-label="All topics graph"></section><section id="focus-view" class="graph-view" aria-label="Local graph" hidden></section></div>
         <div class="graph-footer"><span id="graph-caption">Select a node to inspect it</span><span id="graph-counts"></span></div>
       </main>
@@ -58,7 +72,7 @@ app.innerHTML = `
     <input id="relationship-topic-id" type="hidden" /><input id="relationship-direction" type="hidden" />
     <p id="relationship-help" class="dialog-help"></p>
     <label>Other topic<select id="relationship-other"></select></label>
-    <label>Connection<select id="relationship-kind">${RELATIONSHIP_KINDS.map((kind) => `<option value="${kind}">${kind === "prerequisite" ? "Required first" : "Helpful, but optional"}</option>`).join("")}</select></label>
+    <label>Connection<select id="relationship-kind">${RELATIONSHIP_KINDS.map((kind) => `<option value="${kind}">${kindLabel(kind)}</option>`).join("")}</select></label>
     <p id="relationship-preview" class="relationship-preview"></p>
     <div class="dialog-actions"><button type="button" data-close="relationship-dialog">Cancel</button><button type="submit" class="primary">Save connection</button></div>
   </form></dialog>`;
@@ -108,7 +122,39 @@ function setMessage(text: string): void {
   message.textContent = text;
 }
 function kindLabel(kind: RelationshipKind): string {
-  return kind === "prerequisite" ? "Required first" : "Helpful";
+  if (kind === "prerequisite") return "Required first";
+  if (kind === "helpful") return "Helpful context";
+  return "Related";
+}
+function loadNodePositions(): Record<string, Point> {
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem(NODE_POSITION_STORAGE_KEY) ?? "{}",
+    ) as Record<string, unknown>;
+    const positions: Record<string, Point> = {};
+    for (const [id, position] of Object.entries(stored)) {
+      if (
+        typeof position === "object" &&
+        position !== null &&
+        Number.isFinite((position as Point).x) &&
+        Number.isFinite((position as Point).y)
+      )
+        positions[id] = {
+          x: (position as Point).x,
+          y: (position as Point).y,
+        };
+    }
+    return positions;
+  } catch {
+    return {};
+  }
+}
+function saveNodePositions(): void {
+  try {
+    localStorage.setItem(NODE_POSITION_STORAGE_KEY, JSON.stringify(nodePositions));
+  } catch {
+    // Positioning remains available for this session if local storage is unavailable.
+  }
 }
 
 function renderTopics(): void {
@@ -134,7 +180,7 @@ function renderTopics(): void {
 function relationRow(relation: Relationship, otherId: string): string {
   const other = topicById(data, otherId);
   if (!other) return "";
-  return `<div class="relation-row"><button type="button" class="relation-target" data-topic="${escapeHtml(otherId)}"><span class="relation-name">${escapeHtml(other.name)}</span><small class="${escapeHtml(relation.kind)}">${kindLabel(relation.kind)}</small></button><button type="button" class="icon-button remove-link" data-remove-link="${escapeHtml(relation.id)}" aria-label="Remove connection with ${escapeHtml(other.name)}" title="Remove connection">×</button></div>`;
+  return `<div class="relation-row"><div class="relation-target"><span class="relation-name">${escapeHtml(other.name)}</span><small class="${escapeHtml(relation.kind)}">${kindLabel(relation.kind)}</small></div><button type="button" class="icon-button remove-link" data-remove-link="${escapeHtml(relation.id)}" aria-label="Remove connection with ${escapeHtml(other.name)}" title="Remove connection">×</button></div>`;
 }
 function renderInspector(): void {
   if (loadError) {
@@ -145,7 +191,7 @@ function renderInspector(): void {
     selectedTopicId = data.topics[0]?.id ?? null;
   const topic = selectedTopicId ? topicById(data, selectedTopicId) : undefined;
   if (!topic) {
-    inspector.innerHTML = `<div class="pane-heading"><strong>Topic</strong></div><div class="inspector-empty"><span aria-hidden="true">◇</span><p>Select a topic in the graph or add one to begin.</p><button type="button" class="primary" id="welcome-add">Add topic</button></div>`;
+    inspector.innerHTML = `<div class="pane-heading"><strong>Topic</strong></div><div class="inspector-empty"><span aria-hidden="true">◇</span><p>Select a topic from the list or add one to begin.</p><button type="button" class="primary" id="welcome-add">Add topic</button></div>`;
     return;
   }
   const incoming = data.relationships.filter(
@@ -166,7 +212,6 @@ function renderInspector(): void {
     <div class="inspector-actions"><button type="button" class="subtle-link danger" data-delete-topic="${escapeHtml(topic.id)}">Delete topic</button></div></div>`;
 }
 
-type Point = { x: number; y: number };
 function graphLayout(
   topics: GraphData["topics"],
   relations: Relationship[],
@@ -232,7 +277,46 @@ function graphLayout(
     point.x = 500 + (point.x - centerX) * scale;
     point.y = 360 + (point.y - centerY) * scale;
   }
+  for (const topic of topics) {
+    const savedPosition = nodePositions[topic.id];
+    if (savedPosition) points.set(topic.id, { ...savedPosition });
+  }
   return points;
+}
+function edgeEndpoints(a: Point, b: Point): {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+} {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  return {
+    x1: a.x + (dx / length) * 11,
+    y1: a.y + (dy / length) * 11,
+    x2: b.x - (dx / length) * 14,
+    y2: b.y - (dy / length) * 14,
+  };
+}
+function updateNodePosition(svg: SVGSVGElement, id: string, point: Point): void {
+  renderedPoints.set(id, point);
+  for (const node of svg.querySelectorAll<SVGGElement>("[data-node]")) {
+    if (node.dataset.node === id)
+      node.setAttribute("transform", `translate(${point.x} ${point.y})`);
+  }
+  for (const edge of svg.querySelectorAll<SVGLineElement>(
+    "line[data-source][data-target]",
+  )) {
+    const source = renderedPoints.get(edge.dataset.source ?? "");
+    const target = renderedPoints.get(edge.dataset.target ?? "");
+    if (!source || !target) continue;
+    const { x1, y1, x2, y2 } = edgeEndpoints(source, target);
+    edge.setAttribute("x1", String(x1));
+    edge.setAttribute("y1", String(y1));
+    edge.setAttribute("x2", String(x2));
+    edge.setAttribute("y2", String(y2));
+  }
 }
 function renderGraph(local: boolean): void {
   const target = local ? focusView : atlasView;
@@ -244,6 +328,13 @@ function renderGraph(local: boolean): void {
     return;
   }
   const selected = selectedTopicId;
+  if (local && !selected) {
+    byId<HTMLElement>("graph-caption").textContent =
+      "Choose a topic from the list to view its local graph";
+    byId<HTMLElement>("graph-counts").textContent = "";
+    target.innerHTML = `<div class="graph-empty"><span aria-hidden="true">◇</span><h2>Choose a topic</h2><p>Select a topic in the library to inspect its connections.</p></div>`;
+    return;
+  }
   const ids =
     local && selected
       ? new Set([
@@ -263,7 +354,7 @@ function renderGraph(local: boolean): void {
   );
   byId<HTMLElement>("graph-caption").textContent = local
     ? "Local graph · connections to the selected topic"
-    : "Select a node to inspect it · drag to pan · scroll to zoom";
+    : "Choose topics from the library · drag nodes to arrange · scroll to zoom";
   byId<HTMLElement>("graph-counts").textContent =
     `${topics.length} topics · ${relations.length} connections`;
   if (!topics.length) {
@@ -271,6 +362,7 @@ function renderGraph(local: boolean): void {
     return;
   }
   const points = graphLayout(topics, relations);
+  renderedPoints = points;
   const neighbors = new Set(
     relations
       .filter((r) => r.source === selected || r.target === selected)
@@ -280,14 +372,14 @@ function renderGraph(local: boolean): void {
     .map((relation) => {
       const a = points.get(relation.source)!;
       const b = points.get(relation.target)!;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const length = Math.max(1, Math.hypot(dx, dy));
+      const { x1, y1, x2, y2 } = edgeEndpoints(a, b);
       const dim =
         selected && relation.source !== selected && relation.target !== selected
           ? " dim"
           : "";
-      return `<line class="graph-edge ${relation.kind}${dim}" x1="${a.x + (dx / length) * 11}" y1="${a.y + (dy / length) * 11}" x2="${b.x - (dx / length) * 14}" y2="${b.y - (dy / length) * 14}" marker-end="url(#arrow-${relation.kind})"/>`;
+      const marker =
+        relation.kind === "related" ? "" : ` marker-end="url(#arrow-${relation.kind})"`;
+      return `<line class="graph-edge ${relation.kind}${dim}" data-source="${escapeHtml(relation.source)}" data-target="${escapeHtml(relation.target)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"${marker}/>`;
     })
     .join("");
   const nodes = topics
@@ -298,13 +390,13 @@ function renderGraph(local: boolean): void {
         selected && topic.id !== selected && !neighbors.has(topic.id)
           ? " dim"
           : "";
-      return `<g class="graph-node${selectedClass}${dim}" data-node="${escapeHtml(topic.id)}" tabindex="0" role="button" aria-label="Select ${escapeHtml(topic.name)}" transform="translate(${point.x} ${point.y})"><circle class="node-hit" r="22"/><circle class="node-dot" r="${topic.id === selected ? 8 : 6}"/><text y="-15" text-anchor="middle">${escapeHtml(topic.name)}</text></g>`;
+      return `<g class="graph-node${selectedClass}${dim}" data-node="${escapeHtml(topic.id)}" aria-label="${escapeHtml(topic.name)}, ${escapeHtml(topic.status)}. Drag to move." transform="translate(${point.x} ${point.y})"><title>${escapeHtml(topic.name)} · ${escapeHtml(topic.status)}</title><circle class="node-hit" r="22"/><circle class="node-dot ${escapeHtml(topic.status)}" r="${topic.id === selected ? 8 : 6}"/><text y="-15" text-anchor="middle">${escapeHtml(topic.name)}</text></g>`;
     })
     .join("");
   target.innerHTML = `<svg id="graph-svg" role="group" aria-label="${local ? "Local graph" : "All topics graph"} with ${topics.length} topics" viewBox="${graphBox.x} ${graphBox.y} ${graphBox.width} ${graphBox.height}" preserveAspectRatio="xMidYMid meet"><defs>
     <marker id="arrow-prerequisite" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0 0 L5 3 L0 6" fill="none" stroke="#bca27c" stroke-width="1"/></marker>
     <marker id="arrow-helpful" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0 0 L5 3 L0 6" fill="none" stroke="#8a8f9c" stroke-width="1"/></marker></defs>
-    <g>${edges}</g><g>${nodes}</g></svg><div class="graph-legend"><span><i class="legend-line required"></i>Required first</span><span><i class="legend-line helpful"></i>Helpful</span></div>`;
+    <g>${edges}</g><g>${nodes}</g></svg><div class="graph-legend"><span><i class="legend-line required"></i>Required first</span><span><i class="legend-line helpful"></i>Helpful</span><span><i class="legend-line related"></i>Related</span><span class="legend-divider" aria-hidden="true"></span><span><i class="legend-dot planned"></i>Planned</span><span><i class="legend-dot learning"></i>Learning</span><span><i class="legend-dot learned"></i>Learned</span><span><i class="legend-dot later"></i>Later</span></div>`;
 }
 function render(): void {
   byId<HTMLButtonElement>("add-topic").disabled = !!loadError;
@@ -402,7 +494,9 @@ function updateRelationshipPreview(): void {
   byId<HTMLElement>("relationship-preview").textContent =
     relationshipKindInput.value === "prerequisite"
       ? `Learn ${first} before ${second}.`
-      : `${first} is helpful when learning ${second}.`;
+      : relationshipKindInput.value === "helpful"
+        ? `${first} is helpful when learning ${second}.`
+        : `${first} is related to ${second}.`;
 }
 function openRelationship(
   id: string,
@@ -490,12 +584,6 @@ relationshipForm.addEventListener("submit", async (event) => {
 });
 document.addEventListener("click", async (event) => {
   const element = event.target as Element;
-  const node = element.closest<SVGGElement>("[data-node]");
-  if (node?.dataset.node && !dragging?.moved) {
-    selectedTopicId = node.dataset.node;
-    render();
-    return;
-  }
   const button = element.closest<HTMLButtonElement>("button");
   if (!button) return;
   if (button.id === "atlas-tab" || button.id === "atlas-icon") {
@@ -509,6 +597,8 @@ document.addEventListener("click", async (event) => {
   if (button.dataset.zoom) {
     if (button.dataset.zoom === "reset") {
       graphBox = { x: 0, y: 0, width: 1000, height: 720 };
+      nodePositions = {};
+      saveNodePositions();
       renderGraph(view === "focus");
     } else if (document.querySelector("#graph-svg"))
       zoom(button.dataset.zoom === "in" ? 0.8 : 1.25);
@@ -530,7 +620,7 @@ document.addEventListener("click", async (event) => {
     byId<HTMLDialogElement>(button.dataset.close).close();
     return;
   }
-  if (button.dataset.topic) {
+  if (button.classList.contains("topic-row") && button.dataset.topic) {
     selectedTopicId = button.dataset.topic;
     render();
     return;
@@ -578,16 +668,10 @@ document.addEventListener("click", async (event) => {
   if (button.id === "load-sample" || button.dataset.loadSample !== undefined) {
     if (!confirm("Replace the current map with example topics?")) return;
     data = sampleGraph();
-    selectedTopicId = data.topics[0]?.id ?? null;
+    selectedTopicId = null;
+    nodePositions = {};
+    saveNodePositions();
     await persist("Example map loaded.");
-  }
-});
-document.addEventListener("keydown", (event) => {
-  const node = (event.target as Element).closest<SVGGElement>("[data-node]");
-  if (node?.dataset.node && (event.key === "Enter" || event.key === " ")) {
-    event.preventDefault();
-    selectedTopicId = node.dataset.node;
-    render();
   }
 });
 searchInput.addEventListener("input", () => {
@@ -612,7 +696,19 @@ graphArea.addEventListener(
 graphArea.addEventListener("pointerdown", (event) => {
   const svg = graphArea.querySelector<SVGSVGElement>("#graph-svg");
   if (!svg || !(event.target as Element).closest("#graph-svg")) return;
-  dragging = { x: event.clientX, y: event.clientY, moved: false };
+  const node = (event.target as Element).closest<SVGGElement>("[data-node]");
+  const id = node?.dataset.node;
+  const point = id ? renderedPoints.get(id) : undefined;
+  dragging = id && point
+    ? {
+        kind: "node",
+        id,
+        x: event.clientX,
+        y: event.clientY,
+        origin: { ...point },
+        moved: false,
+      }
+    : { kind: "canvas", x: event.clientX, y: event.clientY, moved: false };
   svg.setPointerCapture(event.pointerId);
 });
 graphArea.addEventListener("pointermove", (event) => {
@@ -622,25 +718,34 @@ graphArea.addEventListener("pointermove", (event) => {
   const dx = event.clientX - dragging.x;
   const dy = event.clientY - dragging.y;
   if (Math.abs(dx) + Math.abs(dy) > 2) dragging.moved = true;
-  if (dragging.moved) {
-    const rect = svg.getBoundingClientRect();
+  const rect = svg.getBoundingClientRect();
+  if (dragging.kind === "node" && dragging.moved) {
+    const point = {
+      x: dragging.origin.x + ((event.clientX - dragging.x) / rect.width) * graphBox.width,
+      y: dragging.origin.y + ((event.clientY - dragging.y) / rect.height) * graphBox.height,
+    };
+    nodePositions[dragging.id] = point;
+    updateNodePosition(svg, dragging.id, point);
+  } else if (dragging.kind === "canvas" && dragging.moved) {
     graphBox.x -= (dx / rect.width) * graphBox.width;
     graphBox.y -= (dy / rect.height) * graphBox.height;
     svg.setAttribute(
       "viewBox",
       `${graphBox.x} ${graphBox.y} ${graphBox.width} ${graphBox.height}`,
     );
+    dragging.x = event.clientX;
+    dragging.y = event.clientY;
   }
-  dragging.x = event.clientX;
-  dragging.y = event.clientY;
 });
 graphArea.addEventListener("pointerup", () => {
-  if (dragging)
-    setTimeout(() => {
-      dragging = null;
-    }, 0);
+  if (dragging?.kind === "node" && dragging.moved) {
+    saveNodePositions();
+    setMessage("Node position saved locally.");
+  }
+  dragging = null;
 });
 graphArea.addEventListener("pointercancel", () => {
+  if (dragging?.kind === "node" && dragging.moved) saveNodePositions();
   dragging = null;
 });
 
@@ -649,7 +754,13 @@ async function start(): Promise<void> {
     data = await loadGraph();
     loadError = null;
     lastSaved = structuredClone(data);
-    selectedTopicId = data.topics[0]?.id ?? null;
+    selectedTopicId = null;
+    nodePositions = Object.fromEntries(
+      Object.entries(nodePositions).filter(([id]) =>
+        data.topics.some((topic) => topic.id === id),
+      ),
+    );
+    saveNodePositions();
     setMessage("Connected");
   } catch (error) {
     loadError = error instanceof Error ? error : new Error(String(error));

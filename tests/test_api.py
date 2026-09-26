@@ -36,7 +36,7 @@ class TestApiGraph:
                     id="grammar--parsing",
                     source="grammar",
                     target="parsing",
-                    kind="helpful",
+                    kind="related",
                 )
             ],
         )
@@ -46,7 +46,7 @@ class TestApiGraph:
 
         assert [topic.name for topic in stored.topics] == ["Formal Grammar", "Parsing"]
         assert len(stored.relationships) == 1
-        assert stored.relationships[0].kind == "helpful"
+        assert stored.relationships[0].kind == "related"
 
     def test_rejects_unknown_relationship_topic(self):
         graph = GraphPayload(

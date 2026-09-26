@@ -23,7 +23,7 @@ The frontend has an all-topics graph and a local graph for the selected topic. E
 Helps you learn this  ->  [ focused topic ]  ->  This helps you learn
 ```
 
-For example, `Formal Grammar → Parsing` means Formal Grammar helps you learn Parsing. A **required first** connection is a prerequisite; **helpful context** is optional. The web interface uses these plain-language labels while the existing API and database values remain `prerequisite` and `helpful`.
+For example, `Formal Grammar → Parsing` means Formal Grammar helps you learn Parsing. A **required first** connection is a prerequisite; **helpful context** is optional; and **related** links record useful associations without implying a learning order. The web interface uses these plain-language labels while the API and database values are `prerequisite`, `helpful`, and `related`.
 
 Select a node to inspect it in the right pane, or switch to **Local graph** to see its immediate connections. Drag to pan and scroll to zoom.
 
@@ -54,6 +54,10 @@ password in `DATABASE_URL` and `TEST_DATABASE_URL`. The default host port is
 docker compose up -d --wait db
 ```
 
+This creates the application database, `learning_links`. It is all that the API
+and frontend need. The separate `learning_links_test` database is only for
+pytest, which resets it during database tests.
+
 The repository-root `.env` is loaded by `learning-links-api`, `learning-links`,
 and pytest. `LEARNING_LINKS_DISABLE_AUTH=1` is for local testing only; remove
 it before sharing the application. An exported environment variable takes
@@ -74,6 +78,42 @@ npm run dev
 ```
 
 Vite normally runs at `http://localhost:5173` and proxies `/api` to FastAPI on port 8000.
+
+### Stop and clean up local development
+
+Stop the locally run API and Vite servers with `Ctrl-C` in their terminals. Stop
+the background PostgreSQL container while preserving its data:
+
+```fish
+docker compose down
+```
+
+To remove only the sample topics and their relationships while PostgreSQL is
+running, use:
+
+```fish
+uv run learning-links reset --yes
+```
+
+This leaves web users intact. To delete every local PostgreSQL database,
+including users and the disposable test database, remove the Compose volume:
+
+```fish
+docker compose down --volumes
+```
+
+To start a fresh application database afterward, run:
+
+```fish
+docker compose up -d --wait db
+```
+
+If you also plan to run `uv run pytest`, create the disposable test database
+once after the volume reset:
+
+```fish
+docker compose exec -T db createdb -U learning_links learning_links_test
+```
 
 ## CLI
 

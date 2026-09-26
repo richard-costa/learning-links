@@ -16,7 +16,7 @@ from .config import load_environment
 from .store import Store, StoreError, UserNotFound
 
 TopicStatus = Literal["planned", "learning", "learned", "later"]
-RelationshipKind = Literal["prerequisite", "helpful"]
+RelationshipKind = Literal["prerequisite", "helpful", "related"]
 
 load_environment()
 

@@ -7,7 +7,7 @@ from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 
 VALID_STATUSES = ("planned", "learning", "learned", "later")
-VALID_KINDS = ("prerequisite", "helpful")
+VALID_KINDS = ("prerequisite", "helpful", "related")
 
 
 @dataclass(frozen=True)
@@ -94,12 +94,35 @@ class Store:
             CREATE TABLE IF NOT EXISTS relationships (
                 topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
                 supporting_topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-                kind TEXT NOT NULL CHECK(kind IN ('prerequisite','helpful')),
+                kind TEXT NOT NULL CONSTRAINT relationships_kind_check
+                    CHECK(kind IN ('prerequisite','helpful','related')),
                 PRIMARY KEY(topic_id, supporting_topic_id),
                 CHECK(topic_id <> supporting_topic_id)
             )
             """
         )
+        relationship_kind_check = self.conn.execute(
+            """
+            SELECT pg_get_constraintdef(oid) AS definition
+            FROM pg_constraint
+            WHERE conrelid = 'relationships'::regclass
+              AND conname = 'relationships_kind_check'
+            """
+        ).fetchone()
+        if (
+            relationship_kind_check
+            and "'related'" not in relationship_kind_check["definition"]
+        ):
+            self.conn.execute(
+                "ALTER TABLE relationships DROP CONSTRAINT relationships_kind_check"
+            )
+            self.conn.execute(
+                """
+                ALTER TABLE relationships
+                ADD CONSTRAINT relationships_kind_check
+                CHECK(kind IN ('prerequisite','helpful','related'))
+                """
+            )
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (

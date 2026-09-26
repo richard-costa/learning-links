@@ -11,6 +11,11 @@
   --accent: #a995df;
   --required: #bca27c;
   --helpful: #8a8f9c;
+  --related: #6da6a2;
+  --planned: #a6a6a6;
+  --learning: #c7aa85;
+  --learned: #9eb89e;
+  --later: #858ba3;
 }
 * {
   box-sizing: border-box;
@@ -351,23 +356,49 @@ select:focus-visible,
   stroke: var(--helpful);
   stroke-dasharray: 4 4;
 }
+.graph-edge.related {
+  stroke: var(--related);
+  stroke-dasharray: 1 4;
+  stroke-linecap: round;
+}
 .graph-edge.dim,
 .graph-node.dim {
   opacity: 0.19;
 }
 .graph-node {
-  cursor: pointer;
+  cursor: grab;
+}
+.graph-node:active {
+  cursor: grabbing;
 }
 .graph-node .node-hit {
   fill: transparent;
 }
 .graph-node .node-dot {
-  fill: #a6a6a6;
   stroke: #d3d3d3;
   stroke-width: 0.7;
 }
+.graph-node .node-dot.planned,
+.legend-dot.planned {
+  fill: var(--planned);
+  background: var(--planned);
+}
+.graph-node .node-dot.learning,
+.legend-dot.learning {
+  fill: var(--learning);
+  background: var(--learning);
+}
+.graph-node .node-dot.learned,
+.legend-dot.learned {
+  fill: var(--learned);
+  background: var(--learned);
+}
+.graph-node .node-dot.later,
+.legend-dot.later {
+  fill: var(--later);
+  background: var(--later);
+}
 .graph-node.selected .node-dot {
-  fill: var(--accent);
   stroke: #d2c4f0;
   stroke-width: 1.5;
 }
@@ -388,14 +419,16 @@ select:focus-visible,
   fill: #f2ebff;
 }
 .graph-node:hover .node-dot {
-  fill: #d5c6f5;
+  filter: brightness(1.2);
 }
 .graph-legend {
   position: absolute;
   left: 1rem;
   bottom: 1rem;
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
+  max-width: calc(100% - 2rem);
   padding: 0.5rem 0.65rem;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -417,6 +450,21 @@ select:focus-visible,
 .legend-line.helpful {
   border-color: var(--helpful);
   border-top-style: dashed;
+}
+.legend-line.related {
+  border-color: var(--related);
+  border-top-style: dotted;
+}
+.legend-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.legend-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--border);
 }
 .graph-footer {
   display: flex;
@@ -484,13 +532,13 @@ select:focus-visible,
   background: #777;
 }
 .status-dot.learning {
-  background: #c7aa85;
+  background: var(--learning);
 }
 .status-dot.learned {
-  background: #9eb89e;
+  background: var(--learned);
 }
 .status-dot.later {
-  background: #858ba3;
+  background: var(--later);
 }
 .reference-link {
   display: block;
@@ -559,6 +607,9 @@ select:focus-visible,
 }
 .relation-target small.prerequisite {
   color: var(--required);
+}
+.relation-target small.related {
+  color: var(--related);
 }
 .remove-link {
   margin-right: 0.25rem;

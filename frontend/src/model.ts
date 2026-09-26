@@ -1,5 +1,9 @@
 export const STATUSES = ["planned", "learning", "learned", "later"] as const;
-export const RELATIONSHIP_KINDS = ["prerequisite", "helpful"] as const;
+export const RELATIONSHIP_KINDS = [
+  "prerequisite",
+  "helpful",
+  "related",
+] as const;
 
 export type TopicStatus = (typeof STATUSES)[number];
 export type RelationshipKind = (typeof RELATIONSHIP_KINDS)[number];
