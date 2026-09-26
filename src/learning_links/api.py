@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .auth import hash_password, verify_password
 from .config import load_environment
+from .security import RateLimitStore
 from .sessions import Session, SessionStore
 from .store import DuplicateUser, Store, StoreError, User, UserNotFound
 
@@ -19,6 +20,7 @@ TopicStatus = Literal["planned", "learning", "learned", "later"]
 EncounterReason = Literal["need", "revisit", "curious"]
 
 load_environment()
+DUMMY_PASSWORD_HASH = hash_password("not-a-real-user-password")
 
 
 class TopicPayload(BaseModel):
@@ -42,13 +44,17 @@ class WorkspacePayload(BaseModel):
 
 
 class CredentialsPayload(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
 
 
 class SessionPayload(BaseModel):
     email: str
     csrf_token: str
+
+
+class PublicConfigPayload(BaseModel):
+    signup_enabled: bool
 
 
 app = FastAPI(title="learning-links")
@@ -64,6 +70,17 @@ def database_url() -> str:
 def frontend_dist() -> Path:
     default = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     return Path(os.environ.get("LEARNING_LINKS_FRONTEND_DIST", default))
+
+
+def env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if value < minimum:
+        raise RuntimeError(f"{name} must be at least {minimum}")
+    return value
+
+
+def signup_enabled() -> bool:
+    return os.environ.get("LEARNING_LINKS_ENABLE_SIGNUP") == "1"
 
 
 def normalize_email(value: str) -> str:
@@ -84,6 +101,7 @@ def is_public_path(path: str) -> bool:
         "/login",
         "/signup",
         "/api/health",
+        "/api/public-config",
         "/api/auth/login",
         "/api/auth/signup",
     } or normalized.startswith("/assets/")
@@ -142,7 +160,7 @@ def set_session_cookie(response: JSONResponse, request: Request, token: str) -> 
     response.set_cookie(
         session_cookie_name(request),
         token,
-        max_age=7 * 24 * 60 * 60,
+        max_age=env_int("LEARNING_LINKS_SESSION_DAYS", 7) * 24 * 60 * 60,
         path="/",
         secure=secure_cookie(request),
         httponly=True,
@@ -150,7 +168,7 @@ def set_session_cookie(response: JSONResponse, request: Request, token: str) -> 
     )
 
 
-def clear_session_cookies(response: JSONResponse) -> None:
+def clear_session_cookies(response: Response) -> None:
     response.delete_cookie("__Host-learning_links_session", path="/")
     response.delete_cookie("learning_links_session", path="/")
 
@@ -158,6 +176,63 @@ def clear_session_cookies(response: JSONResponse) -> None:
 def csrf_ok(request: Request, session: Session) -> bool:
     supplied = request.headers.get("x-csrf-token", "")
     return bool(supplied) and secrets.compare_digest(supplied, session.csrf_token)
+
+
+def client_rate_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def enforce_rate_limit(
+    request: Request,
+    *,
+    scope: str,
+    key: str,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    with RateLimitStore(database_url()) as limits:
+        decision = limits.hit(scope, key, limit=limit, window_seconds=window_seconds)
+        limits.cleanup()
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="too many attempts; try again later",
+            headers={"Retry-After": str(decision.retry_after)},
+        )
+
+
+def enforce_auth_limits(request: Request, email: str, *, signup: bool = False) -> None:
+    if signup:
+        enforce_rate_limit(
+            request,
+            scope="signup-client",
+            key=client_rate_key(request),
+            limit=env_int("LEARNING_LINKS_SIGNUP_ATTEMPTS_PER_HOUR", 6),
+            window_seconds=3600,
+        )
+        enforce_rate_limit(
+            request,
+            scope="signup-global",
+            key="global",
+            limit=env_int("LEARNING_LINKS_SIGNUP_GLOBAL_PER_HOUR", 30),
+            window_seconds=3600,
+        )
+        return
+
+    enforce_rate_limit(
+        request,
+        scope="login-account",
+        key=email,
+        limit=env_int("LEARNING_LINKS_LOGIN_ATTEMPTS", 10),
+        window_seconds=env_int("LEARNING_LINKS_LOGIN_WINDOW_SECONDS", 900),
+    )
+    enforce_rate_limit(
+        request,
+        scope="login-client",
+        key=client_rate_key(request),
+        limit=env_int("LEARNING_LINKS_LOGIN_CLIENT_ATTEMPTS", 50),
+        window_seconds=env_int("LEARNING_LINKS_LOGIN_WINDOW_SECONDS", 900),
+    )
 
 
 @app.middleware("http")
@@ -193,6 +268,46 @@ async def require_auth(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    max_body = env_int("LEARNING_LINKS_MAX_REQUEST_BYTES", 1_000_000)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_body:
+                response: Response = JSONResponse(
+                    status_code=413,
+                    content={"detail": "request body too large"},
+                )
+            else:
+                response = await call_next(request)
+        except ValueError:
+            response = JSONResponse(status_code=400, content={"detail": "invalid content length"})
+    else:
+        response = await call_next(request)
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
+    )
+    if request.url.path.startswith("/api/auth/") or request.url.path == "/api/workspace":
+        response.headers["Cache-Control"] = "no-store"
+    if secure_cookie(request):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
+
+
 def workspace_from_store(store: Store) -> WorkspacePayload:
     topics = store.list_topics()
     encounters = store.encounters()
@@ -221,6 +336,11 @@ def workspace_from_store(store: Store) -> WorkspacePayload:
 
 
 def replace_workspace(store: Store, workspace: WorkspacePayload) -> None:
+    if len(workspace.topics) > env_int("LEARNING_LINKS_MAX_TOPICS", 5000):
+        raise ValueError("workspace contains too many topics")
+    if len(workspace.encounters) > env_int("LEARNING_LINKS_MAX_ENCOUNTERS", 25000):
+        raise ValueError("workspace contains too many encounters")
+
     ids = [topic.id for topic in workspace.topics]
     if len(ids) != len(set(ids)):
         raise ValueError("topic ids must be unique")
@@ -229,9 +349,17 @@ def replace_workspace(store: Store, workspace: WorkspacePayload) -> None:
     if len(names) != len(set(names)):
         raise ValueError("topic names must be unique")
 
+    for topic in workspace.topics:
+        if not topic.name.strip() or len(topic.name) > 100:
+            raise ValueError("topic names must contain 1 to 100 characters")
+        if len(topic.url) > 2048:
+            raise ValueError("topic URL is too long")
+
     topic_ids = set(ids)
     encounter_pairs: set[tuple[str, str]] = set()
     for encounter in workspace.encounters:
+        if len(encounter.note) > 300:
+            raise ValueError("encounter note is too long")
         if encounter.context not in topic_ids or encounter.topic not in topic_ids:
             raise ValueError("encounter references an unknown topic")
         if encounter.context == encounter.topic:
@@ -260,18 +388,38 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/public-config", response_model=PublicConfigPayload)
+def public_config() -> PublicConfigPayload:
+    return PublicConfigPayload(signup_enabled=signup_enabled())
+
+
 @app.post("/api/auth/signup", response_model=SessionPayload)
 def signup(request: Request, credentials: CredentialsPayload):
+    if not signup_enabled():
+        raise HTTPException(status_code=403, detail="account creation is currently disabled")
+
     try:
         email = normalize_email(credentials.email)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="could not create account")
+
+    enforce_auth_limits(request, email, signup=True)
+
+    try:
         password_hash = hash_password(credentials.password)
         with Store(database_url()) as store:
+            if len(store.list_users()) >= env_int("LEARNING_LINKS_MAX_USERS", 50):
+                raise StoreError("account limit reached")
             user = store.add_user(email, password_hash)
     except (ValueError, DuplicateUser, StoreError):
         raise HTTPException(status_code=400, detail="could not create account")
 
     with SessionStore(database_url()) as sessions:
-        token, session = sessions.create(user.id)
+        token, session = sessions.create(
+            user.id,
+            ttl_days=env_int("LEARNING_LINKS_SESSION_DAYS", 7),
+            max_sessions_per_user=env_int("LEARNING_LINKS_MAX_SESSIONS_PER_USER", 10),
+        )
     response = JSONResponse(
         content={"email": user.email, "csrf_token": session.csrf_token}
     )
@@ -283,16 +431,32 @@ def signup(request: Request, credentials: CredentialsPayload):
 def login(request: Request, credentials: CredentialsPayload):
     try:
         email = normalize_email(credentials.email)
+    except ValueError:
+        email = "invalid@example.invalid"
+
+    enforce_auth_limits(request, email)
+
+    try:
         with Store(database_url()) as store:
             user = store.get_user(email)
-    except (ValueError, UserNotFound):
+    except UserNotFound:
         user = None
 
-    if user is None or not user.active or not verify_password(user.password_hash, credentials.password):
+    if user is None:
+        verify_password(DUMMY_PASSWORD_HASH, credentials.password)
+        valid = False
+    else:
+        valid = user.active and verify_password(user.password_hash, credentials.password)
+
+    if not valid or user is None:
         raise HTTPException(status_code=401, detail="invalid email or password")
 
     with SessionStore(database_url()) as sessions:
-        token, session = sessions.create(user.id)
+        token, session = sessions.create(
+            user.id,
+            ttl_days=env_int("LEARNING_LINKS_SESSION_DAYS", 7),
+            max_sessions_per_user=env_int("LEARNING_LINKS_MAX_SESSIONS_PER_USER", 10),
+        )
     response = JSONResponse(
         content={"email": user.email, "csrf_token": session.csrf_token}
     )
