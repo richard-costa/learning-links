@@ -162,9 +162,9 @@ def run(args):
             return 0
 
         if args.command == "discover":
-            recurring = [(topic, count) for topic, count in store.recurring_topics() if count > 0]
+            recurring = [(topic, count) for topic, count in store.recurring_topics() if count > 1]
             if not recurring:
-                print("No encounters yet.")
+                print("No recurring topics yet.")
             else:
                 for topic, count in recurring:
                     print(f"{count:>3}  {topic.name}")

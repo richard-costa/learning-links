@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load sample learning topics for one broad subject."""
+"""Load sample learning encounters for one broad subject."""
 
 from __future__ import annotations
 
@@ -15,52 +15,51 @@ EXAMPLES = {
     "physics": {
         "topics": [
             ("Classical Mechanics", "learning"),
-            ("Vectors", "learned"),
+            ("Differential Equations", "planned"),
+            ("Linear Algebra", "learning"),
             ("Calculus", "learning"),
-            ("Newton's Laws", "planned"),
-            ("Conservation of Energy", "planned"),
             ("Electromagnetism", "later"),
+            ("Vector Calculus", "planned"),
         ],
-        "relationships": [
-            ("Classical Mechanics", "Vectors", "prerequisite"),
-            ("Classical Mechanics", "Calculus", "helpful"),
-            ("Newton's Laws", "Classical Mechanics", "prerequisite"),
-            ("Conservation of Energy", "Classical Mechanics", "helpful"),
-            ("Electromagnetism", "Vectors", "prerequisite"),
+        "encounters": [
+            ("Classical Mechanics", "Differential Equations", "need", "Harmonic oscillator equations"),
+            ("Classical Mechanics", "Linear Algebra", "revisit", "Normal modes and coupled systems"),
+            ("Classical Mechanics", "Calculus", "revisit", "Variational arguments"),
+            ("Electromagnetism", "Vector Calculus", "need", "Divergence and curl"),
+            ("Electromagnetism", "Differential Equations", "revisit", "Field equations"),
         ],
     },
     "math": {
         "topics": [
-            ("Set Theory", "learning"),
+            ("Linear Algebra", "learning"),
+            ("Differential Equations", "planned"),
+            ("Calculus", "learning"),
             ("Proof Techniques", "learning"),
-            ("Linear Algebra", "planned"),
-            ("Calculus", "planned"),
-            ("Group Theory", "later"),
             ("Topology", "later"),
+            ("Numerical Methods", "planned"),
         ],
-        "relationships": [
-            ("Proof Techniques", "Set Theory", "helpful"),
-            ("Linear Algebra", "Proof Techniques", "helpful"),
-            ("Calculus", "Proof Techniques", "helpful"),
-            ("Group Theory", "Proof Techniques", "prerequisite"),
-            ("Topology", "Set Theory", "prerequisite"),
+        "encounters": [
+            ("Linear Algebra", "Differential Equations", "curious", "Linear systems of differential equations"),
+            ("Differential Equations", "Numerical Methods", "need", "Approximate solutions"),
+            ("Topology", "Proof Techniques", "revisit", "Proof structure"),
+            ("Differential Equations", "Calculus", "revisit", "Integration techniques"),
         ],
     },
     "computer-science": {
         "topics": [
-            ("Discrete Mathematics", "learning"),
-            ("Data Structures", "planned"),
-            ("Algorithms", "planned"),
-            ("Operating Systems", "later"),
-            ("Computer Networks", "later"),
-            ("Databases", "later"),
+            ("Machine Learning", "learning"),
+            ("Linear Algebra", "planned"),
+            ("Probability", "planned"),
+            ("Optimization", "planned"),
+            ("Algorithms", "later"),
+            ("Statistics", "later"),
         ],
-        "relationships": [
-            ("Data Structures", "Discrete Mathematics", "helpful"),
-            ("Algorithms", "Data Structures", "prerequisite"),
-            ("Operating Systems", "Data Structures", "helpful"),
-            ("Computer Networks", "Operating Systems", "helpful"),
-            ("Databases", "Data Structures", "helpful"),
+        "encounters": [
+            ("Machine Learning", "Linear Algebra", "revisit", "Matrix operations and eigendecompositions"),
+            ("Machine Learning", "Probability", "need", "Probabilistic models"),
+            ("Machine Learning", "Optimization", "need", "Training objectives"),
+            ("Statistics", "Probability", "revisit", "Distributions and expectation"),
+            ("Algorithms", "Optimization", "curious", "Optimization formulations"),
         ],
     },
     "linguistics": {
@@ -70,31 +69,30 @@ EXAMPLES = {
             ("Morphology", "planned"),
             ("Syntax", "planned"),
             ("Semantics", "later"),
-            ("Language Acquisition", "later"),
+            ("Statistics", "later"),
         ],
-        "relationships": [
-            ("Phonology", "Phonetics", "prerequisite"),
-            ("Morphology", "Phonology", "helpful"),
-            ("Syntax", "Morphology", "helpful"),
-            ("Semantics", "Syntax", "helpful"),
-            ("Language Acquisition", "Phonetics", "helpful"),
+        "encounters": [
+            ("Phonology", "Phonetics", "revisit", "Articulatory distinctions"),
+            ("Morphology", "Phonology", "revisit", "Morphophonological alternations"),
+            ("Syntax", "Morphology", "curious", "Interfaces between word and sentence structure"),
+            ("Semantics", "Syntax", "revisit", "Compositional structure"),
+            ("Phonetics", "Statistics", "need", "Acoustic measurements"),
         ],
     },
     "astronomy": {
         "topics": [
             ("Celestial Mechanics", "learning"),
+            ("Differential Equations", "planned"),
+            ("Linear Algebra", "planned"),
             ("Stellar Evolution", "planned"),
-            ("Exoplanets", "planned"),
-            ("Galaxies", "later"),
             ("Cosmology", "later"),
-            ("Observational Astronomy", "learning"),
+            ("Statistics", "learning"),
         ],
-        "relationships": [
-            ("Stellar Evolution", "Observational Astronomy", "helpful"),
-            ("Exoplanets", "Celestial Mechanics", "helpful"),
-            ("Galaxies", "Stellar Evolution", "helpful"),
-            ("Cosmology", "Galaxies", "prerequisite"),
-            ("Cosmology", "Celestial Mechanics", "helpful"),
+        "encounters": [
+            ("Celestial Mechanics", "Differential Equations", "need", "Orbital dynamics"),
+            ("Celestial Mechanics", "Linear Algebra", "revisit", "Coordinate transforms"),
+            ("Stellar Evolution", "Differential Equations", "revisit", "Evolution equations"),
+            ("Cosmology", "Statistics", "need", "Inference from observations"),
         ],
     },
 }
@@ -102,7 +100,7 @@ EXAMPLES = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Load sample learning topics for one broad subject."
+        description="Load sample learning encounters for one broad subject."
     )
     parser.add_argument("subject", choices=sorted(EXAMPLES))
     parser.add_argument(
@@ -114,7 +112,7 @@ def main() -> int:
     example = EXAMPLES[args.subject]
 
     if args.dry_run:
-        print(f"# Sample {args.subject} learning graph. No database changes were made.")
+        print(f"# Sample {args.subject} encounters. No database changes were made.")
         print_commands(example)
         return 0
 
@@ -132,12 +130,12 @@ def main() -> int:
                 store.add_topic(name, status=status)
                 added_topics += 1
 
-        for topic, supporting_topic, kind in example["relationships"]:
-            store.link(topic, supporting_topic, kind)
+        for context, topic, reason, note in example["encounters"]:
+            store.flag(context, topic, reason, note)
 
     print(
         f"Loaded {args.subject}: {added_topics} topic(s) added and "
-        f"{len(example['relationships'])} relationship(s) created or updated."
+        f"{len(example['encounters'])} encounter(s) created or updated."
     )
     return 0
 
@@ -146,10 +144,10 @@ def print_commands(example) -> None:
     for name, status in example["topics"]:
         print(f"learning-links add {shlex.quote(name)} --status {status}")
     print()
-    for topic, supporting_topic, kind in example["relationships"]:
+    for context, topic, reason, note in example["encounters"]:
         print(
-            f"learning-links link {shlex.quote(topic)} "
-            f"{shlex.quote(supporting_topic)} --kind {kind}"
+            f"learning-links flag {shlex.quote(context)} {shlex.quote(topic)} "
+            f"--reason {reason} --note {shlex.quote(note)}"
         )
 
 
