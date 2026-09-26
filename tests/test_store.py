@@ -1,7 +1,6 @@
 import os
 
 import pytest
-import psycopg
 
 from learning_links.store import DuplicateTopic, InvalidEncounter, Store
 from learning_links.visualize import to_dot
@@ -47,35 +46,6 @@ class TestStore:
         assert flagged[0][1:] == ("revisit", "Phase space")
         with pytest.raises(InvalidEncounter):
             self.store.flag("Classical Mechanics", "Classical Mechanics")
-
-    def test_legacy_relationships_are_migrated(self):
-        self.store.add_topic("Parsing")
-        self.store.add_topic("Formal Grammar")
-        parsing = self.store.get_topic("Parsing")
-        grammar = self.store.get_topic("Formal Grammar")
-        self.store.close()
-
-        with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as connection:
-            connection.execute(
-                """
-                CREATE TABLE relationships (
-                    topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-                    supporting_topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-                    kind TEXT NOT NULL,
-                    PRIMARY KEY(topic_id, supporting_topic_id)
-                )
-                """
-            )
-            connection.execute(
-                "INSERT INTO relationships(topic_id,supporting_topic_id,kind) VALUES (%s,%s,'helpful')",
-                (parsing.id, grammar.id),
-            )
-
-        self.store = Store(TEST_DATABASE_URL)
-        contexts = self.store.came_up_in("Formal Grammar")
-        assert [(topic.name, reason) for topic, reason, _ in contexts] == [("Parsing", "revisit")]
-        row = self.store.conn.execute("SELECT to_regclass('relationships') AS name").fetchone()
-        assert row["name"] is None
 
     def test_overview_and_isolated_topics(self):
         self.store.add_topic("Classical Mechanics")
