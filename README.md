@@ -194,7 +194,6 @@ learning-links dot [-o FILE]
 python -m unittest discover -s tests -v
 ```
 
-
 ## Web app
 
 The web app has two small pieces:
@@ -209,6 +208,42 @@ browser (Vite + TypeScript + Cytoscape)
 
 The frontend does not access SQLite directly. FastAPI reads and writes the same
 `learning-links.db` used by the CLI.
+
+### Why FastAPI also serves the frontend
+
+FastAPI's main job is the backend API: it owns the data and exposes endpoints
+that the browser or other clients can call.
+
+The frontend is still a separate application:
+
+```text
+frontend/src/*   -> Vite builds -> frontend/dist/*
+FastAPI          -> serves API  -> /api/*
+```
+
+During development, Vite serves the frontend and FastAPI serves only the API:
+
+```text
+Vite      :5173  -> frontend
+FastAPI   :8000  -> API + SQLite
+```
+
+After `npm run build`, the frontend becomes ordinary static HTML, JavaScript,
+and CSS inside `frontend/dist/`. FastAPI can serve those files as a deployment
+convenience:
+
+```text
+FastAPI :8000
+├── /          -> built frontend files
+└── /api/*     -> backend endpoints
+```
+
+FastAPI is not building or running the TypeScript frontend. Vite does that.
+FastAPI only serves the already-built files.
+
+This keeps deployment simple for a small project: one process, one port, and
+one URL. Later, the frontend can be hosted separately on a CDN or static host
+without changing the backend architecture.
 
 ### Development
 
@@ -260,9 +295,6 @@ When `frontend/dist/` exists, FastAPI also serves the frontend. Open:
 ```text
 http://127.0.0.1:8000
 ```
-
-This is the simplest setup for Tailscale because only one local port needs to
-be exposed.
 
 ### API
 
