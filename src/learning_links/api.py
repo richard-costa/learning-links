@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -69,12 +69,13 @@ def decode_basic_auth(header: str) -> tuple[str, str] | None:
     return email, password
 
 
+def is_public_path(path: str) -> bool:
+    return path in {"/", "/demo", "/api/health"} or path.startswith("/assets/")
+
+
 @app.middleware("http")
 async def require_auth(request: Request, call_next):
-    if (
-        request.url.path == "/api/health"
-        or os.environ.get("LEARNING_LINKS_DISABLE_AUTH") == "1"
-    ):
+    if is_public_path(request.url.path) or os.environ.get("LEARNING_LINKS_DISABLE_AUTH") == "1":
         return await call_next(request)
 
     credentials = decode_basic_auth(request.headers.get("authorization", ""))
@@ -188,7 +189,24 @@ def put_workspace(workspace: WorkspacePayload) -> WorkspacePayload:
 
 _dist = frontend_dist()
 if _dist.exists():
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
+    assets = _dist / "assets"
+    if assets.exists():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    def frontend_index() -> FileResponse:
+        return FileResponse(_dist / "index.html")
+
+    @app.get("/")
+    def landing() -> FileResponse:
+        return frontend_index()
+
+    @app.get("/demo")
+    def demo() -> FileResponse:
+        return frontend_index()
+
+    @app.get("/app")
+    def private_app() -> FileResponse:
+        return frontend_index()
 else:
 
     @app.get("/")
