@@ -1,5 +1,11 @@
 import type { GraphData } from "./model";
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
 async function request(path: string, options?: RequestInit): Promise<Response> {
   const response = await fetch(path, options);
   if (!response.ok) {
@@ -10,7 +16,7 @@ async function request(path: string, options?: RequestInit): Promise<Response> {
     } catch {
       // Keep the HTTP status text.
     }
-    throw new Error(detail);
+    throw new ApiError(response.status, detail);
   }
   return response;
 }

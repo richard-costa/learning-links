@@ -107,13 +107,13 @@ docker compose exec app learning-links user-add you@example.com
 
 Enter the email and password you just created in your browser's sign-in prompt. If you run FastAPI outside Docker, use `learning-links user-add you@example.com` with `DATABASE_URL` set instead.
 
-To skip the prompt for a local-only FastAPI process, start it with the existing development flag:
+To skip the prompt for a local-only FastAPI process, **stop the API and restart it** with the development flag. This one-command form works in fish and Bash:
 
 ```bash
-LEARNING_LINKS_DISABLE_AUTH=1 learning-links-api
+env LEARNING_LINKS_DISABLE_AUTH=1 learning-links-api
 ```
 
-Keep this flag off when sharing the app. PostgreSQL and `DATABASE_URL` are still required.
+The root `.env` is not loaded by `learning-links-api`. In fish, `set LEARNING_LINKS_DISABLE_AUTH 1` also does not export the variable; use `set -gx LEARNING_LINKS_DISABLE_AUTH 1` if you want it to persist in that shell. No rebuild is needed. PostgreSQL and an exported `DATABASE_URL` are still required. Docker Compose reads `.env` for its own configuration, but the app service does not forward this development flag. Keep authentication on when sharing the app.
 
 Add another user from a local Python installation:
 

@@ -1,5 +1,5 @@
 import "./style.css";
-import { loadGraph, saveGraph } from "./api";
+import { ApiError, loadGraph, saveGraph } from "./api";
 import {
   RELATIONSHIP_KINDS,
   STATUSES,
@@ -16,6 +16,7 @@ import { sampleGraph } from "./storage";
 
 let data: GraphData = { topics: [], relationships: [] };
 let lastSaved: GraphData = { topics: [], relationships: [] };
+let loadError: Error | null = null;
 let selectedTopicId: string | null = null;
 let search = "";
 let view: "atlas" | "focus" = "atlas";
@@ -127,7 +128,7 @@ function renderTopics(): void {
     </button>`,
         )
         .join("")
-    : `<p class="empty side-empty">${search ? "No matching topics." : "No topics yet. Add one above."}</p>`;
+    : `<p class="empty side-empty">${loadError ? "Topics unavailable." : search ? "No matching topics." : "No topics yet. Add one above."}</p>`;
 }
 
 function relationRow(relation: Relationship, otherId: string): string {
@@ -136,6 +137,10 @@ function relationRow(relation: Relationship, otherId: string): string {
   return `<div class="relation-row"><button type="button" class="relation-target" data-topic="${escapeHtml(otherId)}"><span class="relation-name">${escapeHtml(other.name)}</span><small class="${escapeHtml(relation.kind)}">${kindLabel(relation.kind)}</small></button><button type="button" class="icon-button remove-link" data-remove-link="${escapeHtml(relation.id)}" aria-label="Remove connection with ${escapeHtml(other.name)}" title="Remove connection">×</button></div>`;
 }
 function renderInspector(): void {
+  if (loadError) {
+    inspector.innerHTML = `<div class="pane-heading"><strong>Topic</strong></div><div class="inspector-empty"><p>Connect to the server to view your topics.</p></div>`;
+    return;
+  }
   if (selectedTopicId && !topicById(data, selectedTopicId))
     selectedTopicId = data.topics[0]?.id ?? null;
   const topic = selectedTopicId ? topicById(data, selectedTopicId) : undefined;
@@ -230,6 +235,14 @@ function graphLayout(
   return points;
 }
 function renderGraph(local: boolean): void {
+  const target = local ? focusView : atlasView;
+  if (loadError) {
+    const unauthorized = loadError instanceof ApiError && loadError.status === 401;
+    byId<HTMLElement>("graph-caption").textContent = "Could not load topics";
+    byId<HTMLElement>("graph-counts").textContent = "";
+    target.innerHTML = `<div class="graph-empty error-state"><h2>${unauthorized ? "Sign in required" : "Could not load your graph"}</h2><p>${unauthorized ? "The server rejected the sign-in. Sign in and try again." : "Check that the API is running, then try again."}</p><button type="button" class="primary" id="retry-load">Try again</button></div>`;
+    return;
+  }
   const selected = selectedTopicId;
   const ids =
     local && selected
@@ -248,7 +261,6 @@ function renderGraph(local: boolean): void {
       topics.some((topic) => topic.id === relation.source) &&
       topics.some((topic) => topic.id === relation.target),
   );
-  const target = local ? focusView : atlasView;
   byId<HTMLElement>("graph-caption").textContent = local
     ? "Local graph · connections to the selected topic"
     : "Select a node to inspect it · drag to pan · scroll to zoom";
@@ -295,6 +307,8 @@ function renderGraph(local: boolean): void {
     <g>${edges}</g><g>${nodes}</g></svg><div class="graph-legend"><span><i class="legend-line required"></i>Required first</span><span><i class="legend-line helpful"></i>Helpful</span></div>`;
 }
 function render(): void {
+  byId<HTMLButtonElement>("add-topic").disabled = !!loadError;
+  byId<HTMLButtonElement>("load-sample").disabled = !!loadError;
   if (selectedTopicId && !topicById(data, selectedTopicId))
     selectedTopicId = data.topics[0]?.id ?? null;
   renderTopics();
@@ -508,6 +522,10 @@ document.addEventListener("click", async (event) => {
     openNewTopic();
     return;
   }
+  if (button.id === "retry-load") {
+    await start();
+    return;
+  }
   if (button.dataset.close) {
     byId<HTMLDialogElement>(button.dataset.close).close();
     return;
@@ -629,10 +647,12 @@ graphArea.addEventListener("pointercancel", () => {
 async function start(): Promise<void> {
   try {
     data = await loadGraph();
+    loadError = null;
     lastSaved = structuredClone(data);
     selectedTopicId = data.topics[0]?.id ?? null;
     setMessage("Connected");
   } catch (error) {
+    loadError = error instanceof Error ? error : new Error(String(error));
     setMessage(
       `API unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );

@@ -32,6 +32,10 @@ button {
   color: inherit;
   cursor: pointer;
 }
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
