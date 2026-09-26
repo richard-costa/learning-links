@@ -10,6 +10,7 @@ def test_public_routes_are_explicit():
     assert is_public_path("/login")
     assert is_public_path("/signup")
     assert is_public_path("/api/health")
+    assert is_public_path("/api/public-config")
     assert is_public_path("/api/auth/login")
     assert is_public_path("/api/auth/signup")
     assert is_public_path("/assets/app.js")
