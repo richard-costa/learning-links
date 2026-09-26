@@ -73,7 +73,10 @@ def frontend_dist() -> Path:
 
 
 def env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    value = int(os.environ.get(name, str(default)))
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer") from exc
     if value < minimum:
         raise RuntimeError(f"{name} must be at least {minimum}")
     return value
@@ -271,19 +274,20 @@ async def require_auth(request: Request, call_next):
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     max_body = env_int("LEARNING_LINKS_MAX_REQUEST_BYTES", 1_000_000)
+    response: Response | None = None
     content_length = request.headers.get("content-length")
     if content_length:
         try:
-            if int(content_length) > max_body:
-                response: Response = JSONResponse(
-                    status_code=413,
-                    content={"detail": "request body too large"},
-                )
-            else:
-                response = await call_next(request)
+            size = int(content_length)
         except ValueError:
             response = JSONResponse(status_code=400, content={"detail": "invalid content length"})
-    else:
+        else:
+            if size < 0:
+                response = JSONResponse(status_code=400, content={"detail": "invalid content length"})
+            elif size > max_body:
+                response = JSONResponse(status_code=413, content={"detail": "request body too large"})
+
+    if response is None:
         response = await call_next(request)
 
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -442,14 +446,17 @@ def login(request: Request, credentials: CredentialsPayload):
     except UserNotFound:
         user = None
 
-    if user is None:
-        verify_password(DUMMY_PASSWORD_HASH, credentials.password)
-        valid = False
-    else:
-        valid = user.active and verify_password(user.password_hash, credentials.password)
+    password_valid = verify_password(
+        user.password_hash if user is not None else DUMMY_PASSWORD_HASH,
+        credentials.password,
+    )
+    valid = user is not None and user.active and password_valid
 
     if not valid or user is None:
         raise HTTPException(status_code=401, detail="invalid email or password")
+
+    with RateLimitStore(database_url()) as limits:
+        limits.clear("login-account", email)
 
     with SessionStore(database_url()) as sessions:
         token, session = sessions.create(
